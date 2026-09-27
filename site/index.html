@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大戶籌碼追蹤</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>大戶籌碼追蹤</h1>
+      <p class="sub">集保戶股權分散表 · 每週更新 · 400張／1000張大戶 vs 散戶（<span id="retailLabel">≤50張</span>）</p>
+    </div>
+    <div class="stamp" id="stamp">載入中…</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="streak">連續增加 <span class="count" data-count="streak"></span></button>
+    <button class="tab" data-tab="cum">累積幅度 <span class="count" data-count="cum"></span></button>
+    <button class="tab" data-tab="jump">單週跳升 <span class="count" data-count="jump"></span></button>
+    <button class="tab" data-tab="combo">多重符合 <span class="count" data-count="combo"></span></button>
+    <button class="tab" data-tab="watch">自選 <span class="count" data-count="watch"></span></button>
+    <button class="tab" data-tab="all">全部</button>
+  </nav>
+
+  <section class="panel">
+    <div class="rules" data-for="streak">
+      <label>連續
+        <select id="streakN"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select> 週</label>
+      <label>大戶
+        <select id="streakBig">
+          <option value="400" selected>400張以上持股↑</option>
+          <option value="1000">1000張以上持股↑</option>
+          <option value="either">400 或 1000 ↑</option>
+          <option value="both">400 且 1000 ↑</option>
+        </select></label>
+      <label>散戶
+        <select id="streakRetail">
+          <option value="pct" selected>持股比例↓</option>
+          <option value="ppl">人數↓</option>
+          <option value="both">比例且人數↓</option>
+          <option value="none">不限</option>
+        </select></label>
+    </div>
+    <div class="rules" data-for="cum" hidden>
+      <label>近
+        <select id="cumM"><option>2</option><option>3</option><option selected>4</option><option>6</option><option>8</option><option>12</option></select> 週</label>
+      <label>400張持股增加 ≥ <input id="cumBig" type="number" step="0.1" value="1.0"> 個百分點</label>
+      <label>1000張持股增加 ≥ <input id="cumBig1000" type="number" step="0.1" value="" placeholder="不限"> 個百分點</label>
+      <label>散戶持股減少 ≥ <input id="cumRetail" type="number" step="0.1" value="0.5"> 個百分點</label>
+    </div>
+    <div class="rules" data-for="jump" hidden>
+      <label>最新一週 400張持股 ≥ +<input id="jump400" type="number" step="0.1" value="1.0"> 個百分點</label>
+      <label>或 1000張持股 ≥ +<input id="jump1000" type="number" step="0.1" value="1.0"> 個百分點</label>
+      <label>且為近期平均波動的 ≥ <input id="jumpX" type="number" step="0.5" value="0"> 倍 <span class="hint">(0 = 不限)</span></label>
+    </div>
+    <div class="rules" data-for="combo" hidden>
+      <p class="hint">同時符合「連續增加」「累積幅度」「單週跳升」其中兩項以上（依各分頁目前的條件）。</p>
+    </div>
+    <div class="rules" data-for="watch" hidden>
+      <p class="hint">點表格左側 ☆ 加入自選（只存在這台裝置的瀏覽器）。</p>
+    </div>
+    <div class="rules" data-for="all" hidden>
+      <p class="hint">所有上市櫃股票，可用搜尋與排序。</p>
+    </div>
+
+    <div class="filters">
+      <input id="q" type="search" placeholder="搜尋代號、名稱、產業">
+      <select id="market"><option value="">上市＋上櫃</option><option>上市</option><option>上櫃</option></select>
+      <label>股價 ≥ <input id="minPrice" type="number" step="1" value="0"></label>
+      <label>總股東數 ≥ <input id="minPeople" type="number" step="500" value="0"></label>
+      <button id="csv" class="ghost">匯出 CSV</button>
+    </div>
+  </section>
+
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+    <p id="empty" class="empty" hidden>沒有符合條件的股票，試著放寬條件。</p>
+  </div>
+  <p class="more" id="more" hidden><button class="ghost" id="showMore">顯示更多</button></p>
+
+  <p class="foot">
+    資料來源：<a href="https://www.tdcc.com.tw/portal/zh/smWeb/qryStock" target="_blank" rel="noopener">臺灣集中保管結算所 集保戶股權分散表</a>、證交所、櫃買中心。
+    400張以上＝持股 400,001 股以上（分級 12–15）；1000張以上＝1,000,001 股以上（分級 15）。
+    持股比例＝該分級股數 ÷ 集保庫存總股數。僅供研究參考，非投資建議。
+  </p>
+</main>
+
+<dialog id="detail">
+  <div class="dlg">
+    <div class="dlg-head">
+      <div><h2 id="dTitle"></h2><p id="dSub" class="sub"></p></div>
+      <button class="x" id="dClose" aria-label="關閉">×</button>
+    </div>
+    <div id="dChart"></div>
+    <div id="dLegend" class="legend"></div>
+    <div id="dTable" class="dtable"></div>
+    <p class="links" id="dLinks"></p>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
