@@ -1,0 +1,44 @@
+name: 每週更新籌碼資料
+
+on:
+  schedule:
+    # 集保資料約在週五晚間～週六公布；台北時間 週六 10:07 與 週日 10:07 各跑一次（第二次是保險，已有資料會自動略過）
+    - cron: "7 2 * * 6"
+    - cron: "7 2 * * 0"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: chip-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: 抓取最新一週
+        run: python scripts/fetch_weekly.py
+      - name: 產生網站資料
+        run: python scripts/build_summary.py
+      - name: 提交資料
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data site/data
+          git diff --cached --quiet || git commit -m "資料更新 $(date -u +%F)"
+          git push
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
