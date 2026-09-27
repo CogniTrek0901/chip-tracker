@@ -2,7 +2,7 @@
 
 集保開放資料只提供「最新一週」，歷史週次需逐檔向集保查詢頁
 https://www.tdcc.com.tw/portal/zh/smWeb/qryStock 查詢（約可查近一年）。
-全市場約 1,800 檔 × 每週一次請求，速度刻意放慢以免造成對方負擔，
+上市櫃約 2,000 檔 × 每週一次請求，用 3 個連線、每次間隔約 1 秒，以免造成對方負擔，
 因此支援中斷續跑：進度存在 data/backfill_tmp/，下次執行會接續。
 
 用法：
@@ -16,7 +16,9 @@ import json
 import random
 import re
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -96,60 +98,89 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--weeks", type=int, default=8, help="回補最近幾週（含已存在的週）")
     ap.add_argument("--max-minutes", type=float, default=300, help="最長執行時間，到了就存檔停止")
-    ap.add_argument("--delay", type=float, default=0.8, help="每次請求間隔秒數")
+    ap.add_argument("--delay", type=float, default=0.8, help="每個連線每次請求間隔秒數")
+    ap.add_argument("--workers", type=int, default=3, help="同時查詢的連線數")
     args = ap.parse_args()
 
     start = time.time()
-    t = Tdcc()
+    first = Tdcc()
     have = set(list_raw_dates())
-    targets = [d for d in t.dates[:args.weeks] if d not in have]
+    targets = [d for d in first.dates[:args.weeks] if d not in have]
     if not targets:
         print("指定週數都已存在，無需回補")
         return 0
 
-    # 要查的股票：用最新一週原始資料或名稱清單
-    codes = sorted((read_raw(max(have)) if have else {}).keys()) or \
-        sorted((load_json(META_DIR / "stocks.json", {}) or {}).keys())
+    # 要查的股票：上市櫃普通股（名稱清單），沒有清單才用最新一週原始資料
+    meta = load_json(META_DIR / "stocks.json", {}) or {}
+    codes = sorted(meta.keys()) or sorted((read_raw(max(have)) if have else {}).keys())
     codes = [c for c in codes if is_stock_code(c)]
     if not codes:
         print("沒有股票清單，請先執行 fetch_weekly.py", file=sys.stderr)
         return 1
-    print(f"回補 {targets}，每週 {len(codes)} 檔")
+    print(f"回補 {targets}，每週 {len(codes)} 檔，{args.workers} 個連線")
+
+    local = threading.local()
+    lock = threading.Lock()
+    stop = threading.Event()
+    state = {"fails": 0}
+
+    def client() -> Tdcc:
+        if not hasattr(local, "t"):
+            local.t = Tdcc()
+        return local.t
 
     TMP_DIR.mkdir(parents=True, exist_ok=True)
-    fails = 0
     for date in targets:
         tmp = TMP_DIR / f"{date}.json"
         done = {k: {int(lv): tuple(v) for lv, v in d.items()}
                 for k, d in (load_json(tmp, {}) or {}).items()}
         todo = [c for c in codes if c not in done]
         print(f"[{date}] 已完成 {len(done)}，剩 {len(todo)}")
-        for n, code in enumerate(todo, 1):
+
+        def work(code: str, date=date, done=done, tmp=tmp) -> None:
+            if stop.is_set():
+                return
             if (time.time() - start) / 60 > args.max_minutes:
-                tmp.write_text(json.dumps(done), encoding="utf-8")
-                print("到達時間上限，已儲存進度，下次會接續")
-                return 0
+                stop.set()
+                return
             try:
-                lv = t.query(code, date)
-                done[code] = lv if lv else {}
-                fails = 0
+                lv = client().query(code, date)
+                with lock:
+                    done[code] = lv if lv else {}
+                    state["fails"] = 0
+                    if len(done) % 100 == 0:
+                        tmp.write_text(json.dumps(done), encoding="utf-8")
+                        print(f"  {len(done)}/{len(codes)}  {(time.time() - start) / 60:.0f} 分鐘")
             except Exception as e:
-                fails += 1
+                with lock:
+                    state["fails"] += 1
+                    n = state["fails"]
                 print(f"  ! {code} {date}：{e}", file=sys.stderr)
-                if fails >= 5:
-                    time.sleep(60)
-                    try:
-                        t.refresh()
-                    except Exception:
-                        pass
-                if fails >= 20:
-                    tmp.write_text(json.dumps(done), encoding="utf-8")
-                    print("連續失敗過多，停止", file=sys.stderr)
-                    return 1
-            if n % 100 == 0:
-                tmp.write_text(json.dumps(done), encoding="utf-8")
-                print(f"  {n}/{len(todo)}")
+                if n >= 30:
+                    stop.set()
+                    return
+                time.sleep(20)
+                try:
+                    local.t = Tdcc()
+                except Exception:
+                    pass
             time.sleep(args.delay + random.random() * 0.4)
+
+        for _ in range(3):  # 失敗的股票最多重試兩輪
+            with ThreadPoolExecutor(max_workers=args.workers) as ex:
+                list(ex.map(work, todo))
+            todo = [c for c in codes if c not in done]
+            if not todo or stop.is_set():
+                break
+
+        missing = [c for c in codes if c not in done]
+        if stop.is_set() or missing:
+            tmp.write_text(json.dumps(done), encoding="utf-8")
+            if state["fails"] >= 30:
+                print("連續失敗過多，已儲存進度後停止", file=sys.stderr)
+                return 1
+            print(f"已儲存進度（{date} 剩 {len(missing)} 檔），下次執行會接續")
+            return 0
 
         rows = {c: v for c, v in done.items() if v}
         write_raw(date, rows)
