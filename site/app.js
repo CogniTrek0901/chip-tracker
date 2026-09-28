@@ -53,7 +53,8 @@
       }
     }
     selThemes = new Set([...selThemes].filter((k) => SEG.has(k)));
-    $("#treeChain").innerHTML = (T.chains || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+    $("#treeChain").innerHTML = (T.chains || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("") +
+      (T.chains && T.chains.length > 1 ? '<option value="__all">全部產業鏈</option>' : "");
   }
 
   function prep() {
@@ -303,23 +304,67 @@
       (SEG.size ? html : '<p class="empty">尚未設定題材（site/data/themes.json）。</p>');
   }
 
-  // ---------- 產業樹狀圖 ----------
+  // ---------- 產業樹狀圖（依籌碼突顯＋資金流向） ----------
+  const FOCUS = {
+    up: { label: "本週 400張大戶增加", f: (r) => r.d400 != null && r.d400 > 0 },
+    up1000: { label: "本週 1000張大戶增加", f: (r) => r.d1000 != null && r.d1000 > 0 },
+    streak: { label: "符合連續增加", f: (r, c) => pass.streak(r, c) },
+    jump: { label: "符合單週跳升", f: (r, c) => pass.jump(r, c) },
+    combo: { label: "符合多重條件", f: (r, c) => pass.combo(r, c) },
+    none: { label: "", f: () => true },
+  };
   function renderTree(c) {
-    const ch = (T.chains || []).find((x) => x.id === $("#treeChain").value) || (T.chains || [])[0];
+    const sel = $("#treeChain").value;
+    const chains = sel === "__all" ? (T.chains || []) : [(T.chains || []).find((x) => x.id === sel) || (T.chains || [])[0]].filter(Boolean);
     const metric = $("#treeMetric").value, mv = METRIC[metric].v, byCode = rowByCode();
-    $("#treeLegend").innerHTML = legendHtml(metric);
-    if (!ch) { $("#treeView").innerHTML = '<p class="empty">尚未設定產業鏈。</p>'; return; }
+    const focus = $("#treeFocus").value, hideEmpty = $("#treeHide").checked && focus !== "none";
+    const isHit = (r) => FOCUS[focus].f(r, c);
+    $("#treeLegend").innerHTML = legendHtml(metric) + (focus !== "none" ? `<span>・淡色＝未符合「${FOCUS[focus].label}」</span>` : "");
+    if (!chains.length) { $("#treeView").innerHTML = '<p class="empty">尚未設定產業鏈。</p>'; return; }
     const fmtV = (v) => v == null ? "–" : metric === "su" ? `${v} 週` : (v > 0 ? "+" : "") + v.toFixed(2);
-    const stages = ch.stages.map((st) => `<div class="tstage"><h4>${esc(st.name)}</h4><div class="tsegs">` +
-      st.segments.map((sg) => {
-        const seg = SEG.get(ch.id + "/" + sg.id); if (!seg) return "";
-        const rs = seg.codes.map((x) => byCode.get(x)).filter(Boolean).sort((a, b) => (mv(b) ?? -99) - (mv(a) ?? -99));
-        const a = avg(rs.map(mv));
-        return `<div class="tseg${selThemes.has(seg.key) ? " on" : ""}"><div class="sh" data-k="${esc(seg.key)}" title="點擊選取／取消此題材"><b>${esc(seg.name)}</b><small>平均 ${fmtV(a == null ? null : metric === "su" ? Math.round(a * 10) / 10 : a)}</small></div><div class="nodes">` +
-          rs.map((r) => `<span class="node ${heat(mv(r), metric)}${pass.jump(r, c) ? " jump" : ""}" data-c="${r.code}" title="${esc(r.code + " " + r.name)}">${r.code} ${esc(r.name)}<small>${fmtV(mv(r))}</small></span>`).join("") +
-          "</div></div>";
-      }).join("") + "</div></div>").join("");
-    $("#treeView").innerHTML = `<div class="tree"><div class="troot">${esc(ch.name)}</div>${stages}</div>`;
+    const fmtA = (a) => fmtV(a == null ? null : metric === "su" ? Math.round(a * 10) / 10 : a);
+
+    const chainHtml = (ch) => {
+      const stageData = ch.stages.map((st) => {
+        const segs = st.segments.map((sg) => {
+          const seg = SEG.get(ch.id + "/" + sg.id); if (!seg) return null;
+          const rs = seg.codes.map((x) => byCode.get(x)).filter(Boolean);
+          const hits = rs.filter(isHit);
+          rs.sort((a, b) => (isHit(b) - isHit(a)) || ((mv(b) ?? -99) - (mv(a) ?? -99)));
+          return { seg, rs, hits };
+        }).filter(Boolean);
+        const uniq = new Map(); segs.forEach((s) => s.rs.forEach((r) => uniq.set(r.code, r)));
+        const all = [...uniq.values()], hits = all.filter(isHit);
+        return { st, segs, total: all.length, hit: hits.length, ratio: all.length ? hits.length / all.length : 0, avg: avg(all.map(mv)) };
+      });
+      let flow = "";
+      if (focus !== "none") {
+        const best = stageData.reduce((m, s, i) => (s.ratio > (stageData[m]?.ratio ?? -1) ? i : m), 0);
+        flow = `<div class="flow">` + stageData.map((s, i) => (i ? '<span class="arr">➜</span>' : "") +
+          `<div class="fs${i === best && s.hit ? " top" : ""}"><b>${esc(s.st.name)}</b><span class="pct">${Math.round(s.ratio * 100)}%</span> 符合（${s.hit}/${s.total} 檔）<div class="bar"><i style="width:${Math.round(s.ratio * 100)}%"></i></div>平均 ${fmtA(s.avg)}</div>`).join("") + "</div>" +
+          (stageData[best]?.hit ? `<p class="flow-note">本週資金偏向：<b>${esc(stageData[best].st.name)}</b>（${Math.round(stageData[best].ratio * 100)}% 標的符合「${FOCUS[focus].label}」）</p>` : "");
+      }
+      const stages = stageData.map((s) => `<div class="tstage"><h4>${esc(s.st.name)}</h4><div class="tsegs">` +
+        s.segs.filter((g) => !hideEmpty || g.hits.length).map((g) => {
+          const a = avg(g.rs.map(mv));
+          return `<div class="tseg${selThemes.has(g.seg.key) ? " on" : ""}"><div class="sh" data-k="${esc(g.seg.key)}" title="點擊選取／取消此題材"><b>${esc(g.seg.name)}${focus !== "none" && g.hits.length ? `<em>${g.hits.length}/${g.rs.length}</em>` : ""}</b><small>平均 ${fmtA(a)}</small></div><div class="nodes">` +
+            g.rs.map((r) => `<span class="node ${heat(mv(r), metric)}${focus !== "none" ? (isHit(r) ? " hit" : " dim") : ""}${pass.jump(r, c) ? " jump" : ""}" data-c="${r.code}" title="${esc(r.code + " " + r.name)}">${r.code} ${esc(r.name)}<small>${fmtV(mv(r))}</small></span>`).join("") +
+            "</div></div>";
+        }).join("") + "</div></div>").join("");
+      return `<div class="tchain"><h3>${esc(ch.name)}</h3>${flow}<div class="tree"><div class="troot">${esc(ch.name)}</div>${stages}</div></div>`;
+    };
+
+    let extra = "";
+    if (sel === "__all" && focus !== "none") {
+      const un = rows.filter((r) => isHit(r) && !STOCK_SEGS.has(r.code) && baseFilter(r));
+      const byInd = new Map(); un.forEach((r) => { const k = r.ind || "其他"; if (!byInd.has(k)) byInd.set(k, []); byInd.get(k).push(r); });
+      const grps = [...byInd.entries()].sort((a, b) => b[1].length - a[1].length);
+      extra = `<div class="unclass"><h3>未歸入產業鏈、但${esc(FOCUS[focus].label)}的股票（${un.length} 檔，依產業別）</h3>` +
+        grps.map(([k, rs]) => `<div class="grp"><b>${esc(k)}（${rs.length}）</b><div class="nodes">` +
+          rs.sort((a, b) => (mv(b) ?? -99) - (mv(a) ?? -99)).slice(0, 15).map((r) => `<span class="node ${heat(mv(r), metric)}${pass.jump(r, c) ? " jump" : ""}" data-c="${r.code}">${r.code} ${esc(r.name)}<small>${fmtV(mv(r))}</small></span>`).join("") +
+          (rs.length > 15 ? `<span class="hint">…另 ${rs.length - 15} 檔</span>` : "") + "</div></div>").join("") + "</div>";
+    }
+    $("#treeView").innerHTML = chains.map(chainHtml).join("") + extra;
   }
 
   // ---------- 個股明細 ----------
@@ -394,7 +439,7 @@
   }
 
   // ---------- 設定保存 ----------
-  const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople", "themeM", "themeSort", "treeChain", "treeMetric"];
+  const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople", "themeM", "themeSort", "treeChain", "treeMetric", "treeFocus"];
   function saveSettings() { const o = { tab }; SETTING_IDS.forEach((id) => (o[id] = $("#" + id).value)); store.set("settings", o); }
   function loadSettings() { const o = store.get("settings", null); if (!o) return; SETTING_IDS.forEach((id) => { if (o[id] != null) $("#" + id).value = o[id]; }); if (o.tab && $$(".tab").some((b) => b.dataset.tab === o.tab)) setTab(o.tab, false); }
 
