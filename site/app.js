@@ -19,6 +19,10 @@
     set(k, v) { try { localStorage.setItem("chip:" + k, JSON.stringify(v)); } catch { /* ignore */ } },
   };
   let watch = new Set(store.get("watch", []));
+  let selThemes = new Set(store.get("themes", []));   // 已選題材（chainId/segId）
+  let T = { chains: [] };                             // themes.json
+  const SEG = new Map();                              // key → {key, chain, stage, name, codes}
+  const STOCK_SEGS = new Map();                       // code → [seg]
 
   // ---------- 載入 ----------
   async function load() {
@@ -26,6 +30,30 @@
     const r = await fetch("data/summary.json", { cache: "no-cache" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
+  }
+
+  async function loadThemes() {
+    if (window.__THEMES__) return window.__THEMES__;
+    try {
+      const r = await fetch("data/themes.json", { cache: "no-cache" });
+      return r.ok ? await r.json() : { chains: [] };
+    } catch { return { chains: [] }; }
+  }
+
+  function prepThemes() {
+    const have = new Set(D.stocks.map((s) => s.c));
+    for (const ch of T.chains || []) {
+      for (const st of ch.stages || []) {
+        for (const sg of st.segments || []) {
+          const key = ch.id + "/" + sg.id;
+          const seg = { key, chain: ch, stage: st.name, name: sg.name, codes: (sg.codes || []).filter((c) => have.has(c)) };
+          SEG.set(key, seg);
+          seg.codes.forEach((c) => { if (!STOCK_SEGS.has(c)) STOCK_SEGS.set(c, []); STOCK_SEGS.get(c).push(seg); });
+        }
+      }
+    }
+    selThemes = new Set([...selThemes].filter((k) => SEG.has(k)));
+    $("#treeChain").innerHTML = (T.chains || []).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
   }
 
   function prep() {
@@ -82,7 +110,14 @@
   pass.watch = (r) => watch.has(r.code);
   pass.all = () => true;
 
+  function inThemes(code) {
+    if (!selThemes.size) return true;
+    for (const k of selThemes) if (SEG.get(k)?.codes.includes(code)) return true;
+    return false;
+  }
+
   function baseFilter(r) {
+    if (!inThemes(r.code)) return false;
     const q = $("#q").value.trim().toLowerCase();
     const m = $("#market").value, mp = +$("#minPrice").value || 0, mn = +$("#minPeople").value || 0;
     if (q && !r.hay.includes(q)) return false;
@@ -146,6 +181,17 @@
       const n = rows.filter((r) => baseFilter(r) && pass[k](r, c)).length;
       const el = document.querySelector(`[data-count="${k}"]`); if (el) el.textContent = n;
     }
+    renderThemeBar();
+    const isTable = !["themes", "tree"].includes(tab);
+    $("#tableWrap").hidden = !isTable;
+    $("#themeView").hidden = tab !== "themes";
+    $("#treeView").hidden = tab !== "tree";
+    if (!isTable) {
+      $("#more").hidden = true;
+      if (tab === "themes") renderThemes(c); else renderTree(c);
+      saveSettings();
+      return;
+    }
     const cs = cols(c);
     const so = sort || defaultSort[tab];
     const col = cs.find((x) => x.k === so.key) || cs[1];
@@ -166,6 +212,114 @@
     $("#more").hidden = current.length <= limit;
     $("#showMore").textContent = `顯示更多（還有 ${current.length - limit} 檔）`;
     saveSettings();
+  }
+
+  // ---------- 題材選擇列 ----------
+  function renderThemeBar() {
+    const n = selThemes.size;
+    const btn = $("#themeBtn");
+    btn.textContent = n ? `題材：已選 ${n} 個 ▾` : "題材：全部 ▾";
+    btn.classList.toggle("active", n > 0);
+    const panel = $("#themePanel");
+    if (panel.hidden) return;
+    panel.innerHTML = (T.chains || []).map((ch) => `<div class="grp"><b>${esc(ch.name)}</b>` +
+      ch.stages.flatMap((st) => st.segments.map((sg) => {
+        const k = ch.id + "/" + sg.id, s = SEG.get(k);
+        return `<span class="tchip${selThemes.has(k) ? " on" : ""}" data-k="${esc(k)}">${esc(sg.name)} <small>${s ? s.codes.length : 0}</small></span>`;
+      })).join("") + "</div>").join("") +
+      `<div class="acts"><button class="ghost" data-act="clear">清除全部</button><button class="ghost" data-act="close">收合</button></div>`;
+  }
+  function toggleTheme(k) {
+    selThemes.has(k) ? selThemes.delete(k) : selThemes.add(k);
+    store.set("themes", [...selThemes]);
+    limit = PAGE; render();
+  }
+
+  // ---------- 熱度色階 ----------
+  const METRIC = {
+    d400: { label: "本週 400張持股變化", unit: "pp", v: (r) => r.d400 },
+    d1000: { label: "本週 1000張持股變化", unit: "pp", v: (r) => r.d1000 },
+    c400: { label: "近4週 400張持股變化", unit: "pp", v: (r) => r.chg(F.b400, 4), scale: 2 },
+    su: { label: "400張大戶連增週數", unit: "週", v: (r) => r.su400 },
+  };
+  function heat(v, metric) {
+    if (v == null || Number.isNaN(v)) return "c-z0";
+    if (metric === "su") return v >= 5 ? "c-h3" : v >= 3 ? "c-h2" : v >= 1 ? "c-h1" : "c-z0";
+    const s = METRIC[metric]?.scale || 1;
+    if (v >= 1.0 * s) return "c-h3";
+    if (v >= 0.3 * s) return "c-h2";
+    if (v >= 0.05 * s) return "c-h1";
+    if (v <= -1.0 * s) return "c-l3";
+    if (v <= -0.3 * s) return "c-l2";
+    if (v <= -0.05 * s) return "c-l1";
+    return "c-z0";
+  }
+  function legendHtml(metric) {
+    if (metric === "su") return `<span class="sw c-z0">0 週</span><span class="sw c-h1">1–2 週</span><span class="sw c-h2">3–4 週</span><span class="sw c-h3">5 週以上</span><span>・粗框＝本週符合「單週跳升」</span>`;
+    const s = METRIC[metric]?.scale || 1, f = (x) => (x * s).toFixed(2).replace(/0$/, "");
+    return `<span class="sw c-l3">≤−${f(1)}</span><span class="sw c-l2">≤−${f(0.3)}</span><span class="sw c-l1">減少</span><span class="sw c-z0">持平</span><span class="sw c-h1">增加</span><span class="sw c-h2">≥+${f(0.3)}</span><span class="sw c-h3">≥+${f(1)} 跳增</span><span>（百分點）・粗框＝本週符合「單週跳升」</span>`;
+  }
+  const avg = (a) => { const b = a.filter((x) => x != null && !Number.isNaN(x)); return b.length ? b.reduce((s, x) => s + x, 0) / b.length : null; };
+  const rowByCode = () => { const m = new Map(); rows.forEach((r) => m.set(r.code, r)); return m; };
+
+  // ---------- 題材總覽 ----------
+  function segStats(seg, M, byCode, c) {
+    const rs = seg.codes.map((x) => byCode.get(x)).filter(Boolean);
+    const big = avg(rs.map((r) => (M === 1 ? r.d400 : r.chg(F.b400, M))));
+    const big1k = avg(rs.map((r) => (M === 1 ? r.d1000 : r.chg(F.b1000, M))));
+    const ret = avg(rs.map((r) => (M === 1 ? r.dR : r.chg(F.rPct, M))));
+    const up = rs.filter((r) => (M === 1 ? r.d400 : r.chg(F.b400, M)) > 0).length;
+    const streak = rs.filter((r) => pass.streak(r, c)).length;
+    const jump = rs.filter((r) => pass.jump(r, c)).length;
+    const top = [...rs].sort((a, b) => ((M === 1 ? b.d400 : b.chg(F.b400, M)) ?? -99) - ((M === 1 ? a.d400 : a.chg(F.b400, M)) ?? -99)).slice(0, 3);
+    return { rs, big, big1k, ret, up, streak, jump, top };
+  }
+  function renderThemes(c) {
+    const M = +$("#themeM").value, sortBy = $("#themeSort").value, byCode = rowByCode();
+    const lbl = M === 1 ? "本週" : `近${M}週`;
+    const card = (seg) => {
+      const s = segStats(seg, M, byCode, c);
+      const val = (r) => (M === 1 ? r.d400 : r.chg(F.b400, M));
+      return `<div class="tcard${selThemes.has(seg.key) ? " on" : ""}" data-k="${esc(seg.key)}" style="border-left-color:var(--${heat(s.big, M === 1 ? "d400" : "c400").slice(2)})">
+        <div class="tn">${esc(seg.name)}</div><div class="tc">${esc(seg.chain.name)} · ${esc(seg.stage)} · ${s.rs.length} 檔</div>
+        <div class="big ${s.big > 0 ? "up" : s.big < 0 ? "down" : ""}">${s.big == null ? "–" : (s.big > 0 ? "+" : "") + s.big.toFixed(2)}<small style="font-size:12px;font-weight:400"> pp</small></div>
+        <div class="row"><span>${lbl}平均 400張持股變化</span></div>
+        <div class="row"><span>1000張 ${sgn(s.big1k)}</span><span>散戶 ${sgn(s.ret)}</span></div>
+        <div class="row"><span>大戶增加 ${s.up}/${s.rs.length} 檔</span><span>連增 ${s.streak}・跳升 ${s.jump}</span></div>
+        <div class="tops">${s.top.map((r) => `<span class="${heat(val(r), M === 1 ? "d400" : "c400")}">${r.code} ${esc(r.name)}</span>`).join("")}</div>
+      </div>`;
+    };
+    let html = "";
+    if (sortBy === "chain") {
+      html = (T.chains || []).map((ch) => `<h3>${esc(ch.name)}</h3><div class="tcards">` +
+        [...SEG.values()].filter((s) => s.chain === ch).map(card).join("") + "</div>").join("");
+    } else {
+      const list = [...SEG.values()].map((seg) => ({ seg, s: segStats(seg, M, byCode, c) }));
+      list.sort((a, b) => sortBy === "big" ? (b.s.big ?? -99) - (a.s.big ?? -99) : (a.s.ret ?? 99) - (b.s.ret ?? 99));
+      html = `<div class="tcards">${list.map((x) => card(x.seg)).join("")}</div>`;
+    }
+    const n = selThemes.size;
+    $("#themeView").innerHTML = (n ? `<p class="theme-go"><button class="ghost" data-act="go">查看已選 ${n} 個題材的個股 →</button> <button class="ghost" data-act="clear">清除選取</button></p>` : "") +
+      (SEG.size ? html : '<p class="empty">尚未設定題材（site/data/themes.json）。</p>');
+  }
+
+  // ---------- 產業樹狀圖 ----------
+  function renderTree(c) {
+    const ch = (T.chains || []).find((x) => x.id === $("#treeChain").value) || (T.chains || [])[0];
+    const metric = $("#treeMetric").value, mv = METRIC[metric].v, byCode = rowByCode();
+    $("#treeLegend").innerHTML = legendHtml(metric);
+    if (!ch) { $("#treeView").innerHTML = '<p class="empty">尚未設定產業鏈。</p>'; return; }
+    const fmtV = (v) => v == null ? "–" : metric === "su" ? `${v} 週` : (v > 0 ? "+" : "") + v.toFixed(2);
+    const stages = ch.stages.map((st) => `<div class="tstage"><h4>${esc(st.name)}</h4><div class="tsegs">` +
+      st.segments.map((sg) => {
+        const seg = SEG.get(ch.id + "/" + sg.id); if (!seg) return "";
+        const rs = seg.codes.map((x) => byCode.get(x)).filter(Boolean).sort((a, b) => (mv(b) ?? -99) - (mv(a) ?? -99));
+        const a = avg(rs.map(mv));
+        return `<div class="tseg${selThemes.has(seg.key) ? " on" : ""}"><div class="sh" data-k="${esc(seg.key)}" title="點擊選取／取消此題材"><b>${esc(seg.name)}</b><small>平均 ${fmtV(a == null ? null : metric === "su" ? Math.round(a * 10) / 10 : a)}</small></div><div class="nodes">` +
+          rs.map((r) => `<span class="node ${heat(mv(r), metric)}${pass.jump(r, c) ? " jump" : ""}" data-c="${r.code}" title="${esc(r.code + " " + r.name)}">${r.code} ${esc(r.name)}<small>${fmtV(mv(r))}</small></span>`).join("") +
+          "</div></div>";
+      }).join("") + "</div></div>").join("");
+    $("#treeView").innerHTML = `<div class="tree"><div class="troot">${esc(ch.name)}</div>${stages}</div>`;
   }
 
   // ---------- 個股明細 ----------
@@ -199,6 +353,8 @@
     const s = r.st.s, dates = D.dates, pr = r.st.pr || [];
     $("#dTitle").textContent = `${r.code} ${r.name}`;
     $("#dSub").textContent = `${r.market} · ${r.ind} · 股價 ${fmt(r.price)} · 大戶連增 ${r.su400}(400)/${r.su1000}(1000) 週 · 散戶連減 ${r.sdR} 週`;
+    const segs = STOCK_SEGS.get(code) || [];
+    $("#dThemes").textContent = segs.length ? "所屬題材：" + [...new Set(segs.map((s) => `${s.chain.name}／${s.name}`))].join("、") : "";
     const col = (f) => s.map((x) => (x ? x[f] : null));
     const pct = (v) => v.toFixed(2) + "%";
     const grid = [
@@ -238,9 +394,9 @@
   }
 
   // ---------- 設定保存 ----------
-  const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople"];
+  const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople", "themeM", "themeSort", "treeChain", "treeMetric"];
   function saveSettings() { const o = { tab }; SETTING_IDS.forEach((id) => (o[id] = $("#" + id).value)); store.set("settings", o); }
-  function loadSettings() { const o = store.get("settings", null); if (!o) return; SETTING_IDS.forEach((id) => { if (o[id] != null) $("#" + id).value = o[id]; }); if (o.tab && pass[o.tab]) setTab(o.tab, false); }
+  function loadSettings() { const o = store.get("settings", null); if (!o) return; SETTING_IDS.forEach((id) => { if (o[id] != null) $("#" + id).value = o[id]; }); if (o.tab && $$(".tab").some((b) => b.dataset.tab === o.tab)) setTab(o.tab, false); }
 
   function setTab(t, draw = true) {
     tab = t; sort = null; limit = PAGE;
@@ -269,18 +425,35 @@
       openDetail(code);
     });
     $("#showMore").addEventListener("click", () => { limit += PAGE; render(); });
+    $("#themeBtn").addEventListener("click", () => { const p = $("#themePanel"); p.hidden = !p.hidden; render(); });
+    $("#themePanel").addEventListener("click", (e) => {
+      const chip = e.target.closest(".tchip"); if (chip) return toggleTheme(chip.dataset.k);
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "clear") { selThemes.clear(); store.set("themes", []); render(); }
+      if (act === "close") { $("#themePanel").hidden = true; render(); }
+    });
+    $("#themeView").addEventListener("click", (e) => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "go") return setTab("all");
+      if (act === "clear") { selThemes.clear(); store.set("themes", []); return render(); }
+      const cd = e.target.closest(".tcard"); if (cd) toggleTheme(cd.dataset.k);
+    });
+    $("#treeView").addEventListener("click", (e) => {
+      const n = e.target.closest(".node"); if (n) return openDetail(n.dataset.c);
+      const h = e.target.closest(".sh"); if (h) toggleTheme(h.dataset.k);
+    });
     $("#csv").addEventListener("click", exportCsv);
     $("#dClose").addEventListener("click", () => $("#detail").close());
     $("#detail").addEventListener("click", (e) => { if (e.target.id === "detail") $("#detail").close(); });
   }
 
   (async () => {
-    try { D = await load(); } catch (e) {
+    try { [D, T] = await Promise.all([load(), loadThemes()]); } catch (e) {
       $("#stamp").textContent = "資料載入失敗：" + e.message; return;
     }
     $("#retailLabel").textContent = D.retailLabel;
     const last = D.dates[D.dates.length - 1];
     $("#stamp").innerHTML = `資料日期 <b>${last.slice(0, 4)}/${last.slice(4, 6)}/${last.slice(6)}</b> · 共 ${D.dates.length} 週 · ${D.stocks.length} 檔<br>更新於 ${D.updated}${D.demo ? '<span class="demo">示範資料</span>' : ""}`;
-    prep(); bind(); loadSettings(); render();
+    prep(); prepThemes(); bind(); loadSettings(); render();
   })();
 })();
