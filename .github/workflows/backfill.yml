@@ -47,6 +47,8 @@ jobs:
           git add site/data
           git diff --cached --quiet || git commit -m "更新網站資料 $(date -u +%F)"
           git push
+      - name: 加上版本號避免瀏覽器快取舊檔
+        run: sed -i -e "s#href=\"style.css\"#href=\"style.css?v=${GITHUB_SHA::7}\"#" -e "s#src=\"app.js\"#src=\"app.js?v=${GITHUB_SHA::7}\"#" site/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
