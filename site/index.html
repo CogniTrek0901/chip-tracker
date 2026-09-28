@@ -7,17 +7,50 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="intro" class="intro" role="dialog" aria-modal="true" aria-labelledby="introTitle" hidden>
+  <div class="intro-bg"></div>
+  <div class="intro-card">
+    <p class="intro-kicker">大戶籌碼追蹤</p>
+    <h2 class="intro-title" id="introTitle">沒有方向嗎？</h2>
+    <p class="intro-lead">跟著大戶的腳步，一步一步認識整個半導體產業。</p>
+    <ol class="intro-steps">
+      <li style="--i:0"><span class="n">1</span><b>從籌碼延伸</b><small>找出 400／1000 張大戶持續加碼、散戶退場的個股</small></li>
+      <li style="--i:1"><span class="n">2</span><b>切入樹狀圖</b><small>把這些個股放回產業鏈上的位置</small></li>
+      <li style="--i:2"><span class="n">3</span><b>尋找上下游</b><small>同一條鏈上，還有誰也在被加碼？</small></li>
+      <li style="--i:3"><span class="n">4</span><b>由點・切面・到整個產業</b><small>從一檔股票，看懂一整條供應鏈的資金流向</small></li>
+    </ol>
+    <div class="intro-foot">
+      <button id="introGo" class="intro-go">開始探索 →</button>
+      <label class="intro-skip"><input type="checkbox" id="introNever"> 下次不要自動顯示</label>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    var never = false; try { never = localStorage.getItem("chip:introNever") === "1"; } catch (e) {}
+    if (!never) { document.getElementById("intro").hidden = false; document.body.classList.add("intro-lock"); }
+  })();
+</script>
 <header class="top">
   <div class="wrap">
     <div class="brand">
-      <h1>大戶籌碼追蹤</h1>
-      <p class="sub">集保戶股權分散表 · 每週更新 · 400張／1000張大戶 vs 散戶（<span id="retailLabel">≤50張</span>）</p>
+      <div>
+        <h1>大戶籌碼追蹤</h1>
+        <p class="sub">集保戶股權分散表 · 每週更新 · 400張／1000張大戶 vs 散戶（<span id="retailLabel">≤50張</span>）</p>
+      </div>
     </div>
     <div class="stamp" id="stamp">載入中…</div>
   </div>
 </header>
 
 <main class="wrap">
+  <nav class="guide" aria-label="使用步驟">
+    <button data-go="1"><span>1</span>從籌碼延伸</button><i>›</i>
+    <button data-go="2"><span>2</span>切入樹狀圖</button><i>›</i>
+    <button data-go="3"><span>3</span>尋找上下游</button><i>›</i>
+    <button data-go="4"><span>4</span>看整個產業</button>
+    <button class="intro-open" id="introOpen">網站簡介</button>
+  </nav>
   <nav class="tabs" role="tablist">
     <button class="tab active" data-tab="streak">連續增加 <span class="count" data-count="streak"></span></button>
     <button class="tab" data-tab="cum">累積幅度 <span class="count" data-count="cum"></span></button>
@@ -144,5 +177,38 @@
 </dialog>
 
 <script src="app.js"></script>
+<script>
+  (function () {
+    var $ = function (s) { return document.querySelector(s); };
+    var intro = $("#intro");
+    function closeIntro() {
+      try { localStorage.setItem("chip:introNever", $("#introNever").checked ? "1" : "0"); } catch (e) {}
+      intro.classList.add("leaving");
+      document.body.classList.remove("intro-lock");
+      setTimeout(function () { intro.hidden = true; intro.classList.remove("leaving"); }, 900);
+    }
+    function openIntro() {
+      try { $("#introNever").checked = localStorage.getItem("chip:introNever") === "1"; } catch (e) {}
+      intro.hidden = false; document.body.classList.add("intro-lock");
+    }
+    $("#introGo").addEventListener("click", closeIntro);
+    $("#introOpen").addEventListener("click", openIntro);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !intro.hidden) closeIntro(); });
+    function set(id, v) { var el = $(id); if (!el) return; if (el.type === "checkbox") el.checked = v; else el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); }
+    var steps = {
+      1: function () { $('[data-tab="streak"]').click(); },
+      2: function () { $('[data-tab="tree"]').click(); set("#treeChain", "semi"); set("#treeHide", true); },
+      3: function () { $('[data-tab="tree"]').click(); set("#treeChain", "semi"); set("#treeHide", false); },
+      4: function () { $('[data-tab="tree"]').click(); set("#treeChain", "__all"); set("#treeHide", true); }
+    };
+    document.querySelectorAll(".guide [data-go]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll(".guide [data-go]").forEach(function (x) { x.classList.toggle("on", x === b); });
+        steps[b.dataset.go]();
+        $(".tabs").scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  })();
+</script>
 </body>
 </html>
