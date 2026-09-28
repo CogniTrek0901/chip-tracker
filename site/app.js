@@ -305,7 +305,7 @@
   }
 
   // ---------- 產業樹狀圖（依籌碼突顯＋資金流向） ----------
-  const FOCUS = {
+  const FOCUS = { either: { label: "本週 400或1000張大戶增加", f: (r) => (r.d400 != null && r.d400 > 0) || (r.d1000 != null && r.d1000 > 0) },
     up: { label: "本週 400張大戶增加", f: (r) => r.d400 != null && r.d400 > 0 },
     up1000: { label: "本週 1000張大戶增加", f: (r) => r.d1000 != null && r.d1000 > 0 },
     streak: { label: "符合連續增加", f: (r, c) => pass.streak(r, c) },
