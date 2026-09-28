@@ -316,3 +316,5 @@ body.intro-lock main.wrap, body.intro-lock header.top { opacity: 0; transform: t
   main.wrap, header.top, .intro { transition: none; }
 }
 tbody tr:nth-child(even) td.name { background: color-mix(in srgb, var(--tiff-soft) 35%, var(--card)); }
+.tabs { scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
