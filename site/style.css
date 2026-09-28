@@ -168,3 +168,22 @@ svg .grid { stroke: var(--line); }
   input[type=search] { width: 100%; }
   th, td { padding: 6px 7px; }
 }
+.node.dim { opacity: .35; }
+.node.hit { box-shadow: 0 0 0 1px var(--ink); }
+.tchain + .tchain { margin-top: 28px; padding-top: 20px; border-top: 1px dashed var(--line); }
+.tchain > h3 { margin: 0 0 10px; font-size: 16px; }
+.flow { display: flex; align-items: stretch; gap: 6px; margin: 0 0 14px; flex-wrap: wrap; }
+.flow .fs { flex: 1; min-width: 160px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); font-size: 12px; color: var(--muted); }
+.flow .fs b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 2px; }
+.flow .fs.top { border-color: var(--up); box-shadow: 0 0 0 1px var(--up); }
+.flow .fs .pct { font-size: 18px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.flow .bar { height: 6px; background: var(--z0); border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.flow .bar i { display: block; height: 100%; background: var(--h2); }
+.flow .arr { align-self: center; color: var(--muted); font-size: 18px; }
+.flow-note { font-size: 13px; margin: -6px 0 12px; color: var(--muted); }
+.flow-note b { color: var(--up); }
+.tseg .sh em { font-style: normal; font-size: 11px; color: var(--up); margin-left: 6px; }
+.unclass { margin-top: 24px; }
+.unclass h3 { font-size: 14px; margin: 0 0 8px; }
+.unclass .grp { margin-bottom: 8px; }
+.unclass .grp b { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
