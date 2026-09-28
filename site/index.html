@@ -75,6 +75,16 @@
     </div>
     <div class="rules" data-for="tree" hidden>
       <label>產業鏈 <select id="treeChain"></select></label>
+      <label>突顯
+        <select id="treeFocus">
+          <option value="up" selected>本週 400張大戶增加</option>
+          <option value="up1000">本週 1000張大戶增加</option>
+          <option value="streak">符合「連續增加」條件</option>
+          <option value="jump">符合「單週跳升」條件</option>
+          <option value="combo">符合「多重符合」條件</option>
+          <option value="none">不突顯</option>
+        </select></label>
+      <label><input type="checkbox" id="treeHide"> 只顯示有突顯標的的環節</label>
       <label>顏色依據
         <select id="treeMetric">
           <option value="d400" selected>本週 400張持股變化</option>
