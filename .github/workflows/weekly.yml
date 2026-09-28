@@ -8,7 +8,7 @@ on:
   workflow_dispatch: {}
   push:
     branches: [main]
-    paths: ["site/*.html", "site/*.js", "site/*.css", "scripts/**"]
+    paths: ["site/*.html", "site/*.js", "site/*.css", "site/data/themes.json", "scripts/**"]
 
 permissions:
   contents: write
