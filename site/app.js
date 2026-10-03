@@ -368,31 +368,6 @@
   }
 
   // ---------- 個股明細 ----------
-  function chart(title, color, vals, dates, fmtY) {
-    const W = 300, H = 140, P = { l: 50, r: 8, t: 22, b: 20 };
-    const pts = vals.map((y, i) => [i, y]).filter((p) => p[1] != null);
-    if (pts.length < 1) return "";
-    const ys = pts.map((p) => p[1]);
-    let lo = Math.min(...ys), hi = Math.max(...ys);
-    if (hi === lo) { hi += 1; lo -= 1; }
-    const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
-    const n = Math.max(vals.length - 1, 1);
-    const x = (i) => P.l + (i * (W - P.l - P.r)) / n;
-    const y = (v) => P.t + ((hi - v) * (H - P.t - P.b)) / (hi - lo);
-    const d = pts.map((p, j) => (j ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1)).join("");
-    const ticks = [lo + pad, (lo + hi) / 2, hi - pad];
-    const lastP = pts[pts.length - 1];
-    return `<figure style="margin:0"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${title}">
-      <text x="${P.l}" y="14" style="font-weight:600;fill:var(--ink)">${title}</text>
-      <text x="${W - P.r}" y="14" text-anchor="end" style="fill:${color};font-weight:600">${fmtY(lastP[1])}</text>
-      ${ticks.map((t) => `<line class="grid" x1="${P.l}" x2="${W - P.r}" y1="${y(t)}" y2="${y(t)}"/><text x="${P.l - 6}" y="${y(t) + 4}" text-anchor="end">${fmtY(t)}</text>`).join("")}
-      <text x="${P.l}" y="${H - 6}">${dates[0].slice(4, 6)}/${dates[0].slice(6)}</text>
-      <text x="${W - P.r}" y="${H - 6}" text-anchor="end">${dates[dates.length - 1].slice(4, 6)}/${dates[dates.length - 1].slice(6)}</text>
-      <path d="${d}" fill="none" stroke="${color}" stroke-width="2"/>
-      ${pts.map((p) => `<circle cx="${x(p[0])}" cy="${y(p[1])}" r="2.4" fill="${color}"><title>${dates[p[0]]}：${fmtY(p[1])}</title></circle>`).join("")}
-    </svg></figure>`;
-  }
-
   function openDetail(code) {
     const r = rows.find((x) => x.code === code); if (!r) return;
     const s = r.st.s, dates = D.dates, pr = r.st.pr || [];
@@ -400,26 +375,36 @@
     $("#dSub").textContent = `${r.market} · ${r.ind} · 股價 ${fmt(r.price)} · 大戶連增 ${r.su400}(400)/${r.su1000}(1000) 週 · 散戶連減 ${r.sdR} 週`;
     const segs = STOCK_SEGS.get(code) || [];
     $("#dThemes").textContent = segs.length ? "所屬題材：" + [...new Set(segs.map((s) => `${s.chain.name}／${s.name}`))].join("、") : "";
-    const col = (f) => s.map((x) => (x ? x[f] : null));
-    const pct = (v) => v.toFixed(2) + "%";
-    const grid = [
-      chart("400張以上 持股%", "var(--c400)", col(F.b400), dates, pct),
-      chart("1000張以上 持股%", "var(--c1000)", col(F.b1000), dates, pct),
-      chart(`散戶${D.retailLabel} 持股%`, "var(--cretail)", col(F.rPct), dates, pct),
-      chart(`散戶${D.retailLabel} 人數`, "var(--cretail)", col(F.rPpl), dates, (v) => Math.round(v).toLocaleString("zh-TW")),
-      chart("總股東數", "var(--muted)", col(F.tPpl), dates, (v) => Math.round(v).toLocaleString("zh-TW")),
-      pr.some((x) => x != null) ? chart("收盤價", "var(--ink)", pr, dates, (v) => v.toFixed(v >= 100 ? 0 : 2)) : "",
+    $("#dChart").innerHTML = "";
+    $("#dLegend").innerHTML = '<span class="up">紅＝較前一週增加</span><span class="down">綠＝較前一週減少</span><span class="flat">黑＝持平</span>';
+    const g = (a, k) => (a && a[k] != null ? a[k] : null);
+    const COLS = [
+      ["集保<br>總張數", (a) => g(a, 7), 0],
+      ["總股東<br>人數", (a) => g(a, F.tPpl), 0],
+      ["平均<br>張數/人", (a) => (g(a, 7) != null && g(a, F.tPpl) ? a[7] / a[F.tPpl] : null), 2],
+      ["&gt;400張大股東<br>持有張數", (a) => g(a, 8), 0],
+      ["&gt;400張大股東<br>持有百分比", (a) => g(a, F.b400), 2],
+      ["&gt;400張大股東<br>人數", (a) => g(a, F.p400), 0],
+      ["400~600張<br>人數", (a) => g(a, 9), 0],
+      ["600~800張<br>人數", (a) => g(a, 10), 0],
+      ["800~1000張<br>人數", (a) => g(a, 11), 0],
+      ["&gt;1000張<br>人數", (a) => g(a, F.p1000), 0],
+      ["&gt;1000張大股東<br>持有百分比", (a) => g(a, F.b1000), 2],
+      ["收盤價", (a, i) => (pr[i] != null ? pr[i] : null), 2],
     ];
-    $("#dChart").innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px 16px">${grid.join("")}</div>`;
-    $("#dLegend").innerHTML = "點選圓點可看數值；股價僅有網站開始自動更新後的週次。";
+    const show = (v, d) => (v == null ? "–" : v.toLocaleString("zh-TW", { minimumFractionDigits: d, maximumFractionDigits: d }));
     const lines = [];
     for (let i = dates.length - 1; i >= 0; i--) {
-      const a = s[i], b = s[i - 1];
-      if (!a) continue;
-      const dd = (f) => (b ? sgn(a[f] - b[f]) : "");
-      lines.push(`<tr><td class="l">${dates[i]}</td><td>${fmt(a[F.b400])}${dd(F.b400)}</td><td>${fmt(a[F.b1000])}${dd(F.b1000)}</td><td>${fmt(a[F.rPct])}${dd(F.rPct)}</td><td>${int(a[F.rPpl])}</td><td>${int(a[F.tPpl])}</td><td>${int(a[F.p400])}</td><td>${int(a[F.p1000])}</td><td>${fmt(pr[i])}</td></tr>`);
+      if (!s[i]) continue;
+      let j = i - 1; while (j >= 0 && !s[j]) j--;
+      const cells = COLS.map(([, f, d]) => {
+        const v = f(s[i], i), pv = j >= 0 ? f(s[j], j) : null;
+        const cls = v == null || pv == null ? "" : (Math.round(v * 100) > Math.round(pv * 100) ? "up" : Math.round(v * 100) < Math.round(pv * 100) ? "down" : "flat");
+        return `<td class="${cls}">${show(v, d)}</td>`;
+      }).join("");
+      lines.push(`<tr><td class="dt">${dates[i]}</td>${cells}</tr>`);
     }
-    $("#dTable").innerHTML = `<table><thead><tr><th class="l">資料日期</th><th>400張以上%</th><th>1000張以上%</th><th>散戶%</th><th>散戶人數</th><th>總股東數</th><th>400張以上人數</th><th>1000張以上人數</th><th>股價</th></tr></thead><tbody>${lines.join("")}</tbody></table>`;
+    $("#dTable").innerHTML = `<div class="chipdt-wrap"><table class="chipdt"><thead><tr><th class="dt">資料日期</th>${COLS.map((c) => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${lines.join("")}</tbody></table></div>`;
     $("#dLinks").innerHTML = `<a href="https://norway.twsthr.info/StockHolders.aspx?stock=${code}" target="_blank" rel="noopener">神秘金字塔</a><a href="https://www.tdcc.com.tw/portal/zh/smWeb/qryStock" target="_blank" rel="noopener">集保查詢</a><a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener">Yahoo股市</a>`;
     const dlg = $("#detail");
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
