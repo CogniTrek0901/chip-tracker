@@ -33,6 +33,9 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 確保有最新一週與股票清單
         run: python scripts/fetch_weekly.py
+      - name: 補齊各週收盤價
+        run: python scripts/fetch_prices_hist.py
+        continue-on-error: true
       - name: 回補
         run: python scripts/backfill.py --weeks "${{ inputs.weeks }}" --max-minutes "${{ inputs.minutes }}"
         continue-on-error: true
