@@ -58,6 +58,7 @@
     <button class="tab" data-tab="combo">多重符合 <span class="count" data-count="combo"></span></button>
     <button class="tab" data-tab="themes">題材總覽</button>
     <button class="tab" data-tab="tree">產業樹狀圖</button>
+    <button class="tab" data-tab="conf">法說會 <span class="count" data-count="conf"></span></button>
     <button class="tab" data-tab="watch">自選 <span class="count" data-count="watch"></span></button>
     <button class="tab" data-tab="all">全部</button>
   </nav>
@@ -127,6 +128,13 @@
         </select></label>
       <div class="legend" id="treeLegend"></div>
     </div>
+    <div class="rules" data-for="conf" hidden>
+      <label>期間
+        <select id="confSpan"><option value="all" selected>過去兩個月＋未來三個月</option><option value="future">只看即將舉行</option><option value="past">只看已舉行</option></select></label>
+      <label>籌碼
+        <select id="confChip"><option value="all" selected>全部公司</option><option value="any">只看符合 連增／累積／跳升</option><option value="up">只看本週 400或1000張大戶增加</option></select></label>
+      <p class="hint">紅色標籤＝符合籌碼條件（依「連續增加／累積幅度／單週跳升」分頁的設定）；點公司可看籌碼明細。</p>
+    </div>
     <div class="rules" data-for="all" hidden>
       <p class="hint">所有上市櫃股票，可用搜尋與排序。</p>
     </div>
@@ -144,6 +152,7 @@
 
   <div id="themeView" class="theme-view" hidden></div>
   <div id="treeView" class="tree-view" hidden></div>
+  <div id="confView" class="conf-view" hidden></div>
 
   <div class="table-wrap" id="tableWrap">
     <table id="tbl">
@@ -156,6 +165,7 @@
 
   <p class="foot">
     資料來源：<a href="https://www.tdcc.com.tw/portal/zh/smWeb/qryStock" target="_blank" rel="noopener">臺灣集中保管結算所 集保戶股權分散表</a>、證交所、櫃買中心。
+    法說會資料來自公開資訊觀測站法人說明會一覽表。
     題材與產業鏈分類為整理參考，可在 site/data/themes.json 增修。
     400張以上＝持股 400,001 股以上（分級 12–15）；1000張以上＝1,000,001 股以上（分級 15）。
     持股比例＝該分級股數 ÷ 集保庫存總股數。僅供研究參考，非投資建議。
