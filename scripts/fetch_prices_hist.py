@@ -2,6 +2,7 @@
 
 每週只需兩次請求（證交所一次、櫃買一次），已經有的週次會略過。
 若資料日當天休市，會往前找最多 5 天的最近交易日。
+櫃買中心常擋 GitHub 主機，連不上時改用 Yahoo 財經逐檔補上櫃收盤價。
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from common import META_DIR, UA, is_stock_code, list_raw_dates, load_json, save_
 
 TWSE = "https://www.twse.com.tw/exchangeReport/MI_INDEX"
 TPEX_NEW = "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes"
+YAHOO = "https://query{}.finance.yahoo.com/v8/finance/chart/{}.TWO"
 TPEX_OLD = "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php"
 
 
@@ -82,6 +84,48 @@ def tpex(day: dt.date) -> dict[str, float]:
     return out
 
 
+def yahoo_otc(codes: list[str], dates: list[str]) -> dict[str, dict[str, float]]:
+    """逐檔向 Yahoo 取日線，回傳 {資料日: {代號: 收盤價}}（取資料日當天或之前最近一個交易日）。"""
+    tz = dt.timezone(dt.timedelta(hours=8))
+    ds = sorted(dates)
+    p1 = int(dt.datetime.strptime(ds[0], "%Y%m%d").replace(tzinfo=tz).timestamp()) - 10 * 86400
+    p2 = int(dt.datetime.strptime(ds[-1], "%Y%m%d").replace(tzinfo=tz).timestamp()) + 2 * 86400
+    out: dict[str, dict[str, float]] = {d: {} for d in ds}
+    fails = 0
+    for n, code in enumerate(codes, 1):
+        closes = None
+        for host in (1, 2):
+            try:
+                r = requests.get(YAHOO.format(host, code), params={"period1": p1, "period2": p2, "interval": "1d"},
+                                 headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+                if r.status_code == 404:
+                    closes = {}
+                    break
+                res = r.json()["chart"]["result"][0]
+                ts = res.get("timestamp") or []
+                cl = res["indicators"]["quote"][0].get("close") or []
+                closes = {dt.datetime.fromtimestamp(a, tz).strftime("%Y%m%d"): round(b, 2)
+                          for a, b in zip(ts, cl) if b is not None}
+                break
+            except Exception:
+                time.sleep(2)
+        if closes is None:
+            fails += 1
+            if fails >= 15 and fails > n // 2:
+                print("  ! Yahoo 也連不上，停止", file=sys.stderr)
+                break
+            continue
+        days = sorted(closes)
+        for d in ds:
+            prev = [x for x in days if x <= d and (dt.datetime.strptime(d, "%Y%m%d") - dt.datetime.strptime(x, "%Y%m%d")).days <= 6]
+            if prev:
+                out[d][code] = closes[prev[-1]]
+        time.sleep(0.4)
+        if n % 100 == 0:
+            print(f"  Yahoo 進度 {n}/{len(codes)}")
+    return out
+
+
 def main() -> int:
     path = META_DIR / "prices.json"
     prices = load_json(path, {}) or {}
@@ -130,6 +174,17 @@ def main() -> int:
                 save_json(path, prices, compact=True)
             print(f"{d}：使用 {day} 收盤價，上市 {len(a) if want_a else '已有'}、上櫃 {len(b)} 檔")
             break
+
+    # 櫃買連不上 → 用 Yahoo 補上櫃
+    miss = [d for d in list_raw_dates() if need_tpex(d)]
+    if miss and otc:
+        print(f"以 Yahoo 補上櫃收盤價：{len(miss)} 週 × {len(otc)} 檔")
+        got = yahoo_otc(sorted(otc), miss)
+        for d, m in got.items():
+            if m:
+                prices[d] = {**prices.get(d, {}), **m}
+            print(f"{d}：Yahoo 上櫃 {len(m)} 檔")
+        save_json(path, prices, compact=True)
     return 0
 
 if __name__ == "__main__":
