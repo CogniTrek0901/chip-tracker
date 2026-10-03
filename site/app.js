@@ -23,6 +23,7 @@
   let T = { chains: [] };                             // themes.json
   const SEG = new Map();                              // key → {key, chain, stage, name, codes}
   const STOCK_SEGS = new Map();                       // code → [seg]
+  let CONF = { items: [] };                           // conferences.json（法說會）
 
   // ---------- 載入 ----------
   async function load() {
@@ -38,6 +39,13 @@
       const r = await fetch("data/themes.json", { cache: "no-cache" });
       return r.ok ? await r.json() : { chains: [] };
     } catch { return { chains: [] }; }
+  }
+
+  async function loadConf() {
+    try {
+      const r = await fetch("data/conferences.json", { cache: "no-cache" });
+      return r.ok ? await r.json() : { items: [] };
+    } catch { return { items: [] }; }
   }
 
   function prepThemes() {
@@ -183,13 +191,15 @@
       const el = document.querySelector(`[data-count="${k}"]`); if (el) el.textContent = n;
     }
     renderThemeBar();
-    const isTable = !["themes", "tree"].includes(tab);
+    const cn = $('[data-count="conf"]'); if (cn) cn.textContent = confList(c).filter((x) => !x.past).length;
+    const isTable = !["themes", "tree", "conf"].includes(tab);
     $("#tableWrap").hidden = !isTable;
     $("#themeView").hidden = tab !== "themes";
     $("#treeView").hidden = tab !== "tree";
+    $("#confView").hidden = tab !== "conf";
     if (!isTable) {
       $("#more").hidden = true;
-      if (tab === "themes") renderThemes(c); else renderTree(c);
+      if (tab === "themes") renderThemes(c); else if (tab === "conf") renderConf(c); else renderTree(c);
       saveSettings();
       return;
     }
@@ -223,12 +233,18 @@
     btn.classList.toggle("active", n > 0);
     const panel = $("#themePanel");
     if (panel.hidden) return;
-    panel.innerHTML = (T.chains || []).map((ch) => `<div class="grp"><b>${esc(ch.name)}</b>` +
+    const chainKeys = (ch) => ch.stages.flatMap((st) => st.segments.map((sg) => ch.id + "/" + sg.id)).filter((k) => SEG.has(k));
+    const allKeys = [...SEG.keys()];
+    const allOn = allKeys.length && allKeys.every((k) => selThemes.has(k));
+    panel.innerHTML = (T.chains || []).map((ch) => {
+      const ks = chainKeys(ch), on = ks.length && ks.every((k) => selThemes.has(k));
+      return `<div class="grp"><b>${esc(ch.name)}<button class="selall${on ? " on" : ""}" data-act="chain" data-ch="${esc(ch.id)}">${on ? "取消全選" : "全選"}</button></b>` +
       ch.stages.flatMap((st) => st.segments.map((sg) => {
         const k = ch.id + "/" + sg.id, s = SEG.get(k);
         return `<span class="tchip${selThemes.has(k) ? " on" : ""}" data-k="${esc(k)}">${esc(sg.name)} <small>${s ? s.codes.length : 0}</small></span>`;
-      })).join("") + "</div>").join("") +
-      `<div class="acts"><button class="ghost" data-act="clear">清除全部</button><button class="ghost" data-act="close">收合</button></div>`;
+      })).join("") + "</div>";
+    }).join("") +
+      `<div class="acts"><button class="ghost${allOn ? " active" : ""}" data-act="all">${allOn ? "取消全選" : "全選所有題材"}</button><button class="ghost" data-act="clear">清除全部</button><button class="ghost" data-act="close">收合</button></div>`;
   }
   function toggleTheme(k) {
     selThemes.has(k) ? selThemes.delete(k) : selThemes.add(k);
@@ -368,13 +384,70 @@
   }
 
   // ---------- 個股明細 ----------
+  // ---------- 法說會 ----------
+  const WD = "日一二三四五六";
+  const todayStr = () => { const d = new Date(Date.now() + 8 * 3600e3); return d.toISOString().slice(0, 10); };
+  function confList(c) {
+    const byCode = new Map(rows.map((r) => [r.code, r]));
+    const span = $("#confSpan").value, chip = $("#confChip").value, today = todayStr();
+    const q = $("#q").value.trim().toLowerCase();
+    return (CONF.items || []).map((it) => {
+      const r = byCode.get(it.c) || null;
+      const past = (it.e || it.d) < today;
+      const hit = r ? { streak: pass.streak(r, c), cum: pass.cum(r, c), jump: pass.jump(r, c) } : { streak: false, cum: false, jump: false };
+      return { ...it, r, past, hit, any: hit.streak || hit.cum || hit.jump };
+    }).filter((x) => {
+      if (span === "future" && x.past) return false;
+      if (span === "past" && !x.past) return false;
+      if (chip === "any" && !x.any) return false;
+      if (chip === "up" && !(x.r && ((x.r.d400 > 0) || (x.r.d1000 > 0)))) return false;
+      if (x.r) return baseFilter(x.r);
+      if (selThemes.size || $("#market").value || +$("#minPrice").value || +$("#minPeople").value) return false;
+      return !q || (x.c + " " + x.n).toLowerCase().includes(q);
+    });
+  }
+  function renderConf(c) {
+    const list = confList(c), today = todayStr();
+    if (!(CONF.items || []).length) { $("#confView").innerHTML = '<p class="empty">法說會資料尚未產生，下次每週更新後就會出現。</p>'; return; }
+    if (!list.length) { $("#confView").innerHTML = '<p class="empty">沒有符合條件的法說會，試著放寬條件。</p>'; return; }
+    const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+    const wd = (s) => WD[new Date(s + "T00:00:00+08:00").getDay()];
+    const fut0 = list.filter((x) => !x.past), past0 = list.filter((x) => x.past).reverse();
+    let lastMonth = "", html = "", sec = "";
+    for (const x of [...fut0, ...past0]) {
+      const mon = x.d.slice(0, 7);
+      const s = x.past ? "past" : "future";
+      if (s !== sec) {
+        sec = s; lastMonth = "";
+        html += `<tr class="cf-today"><td colspan="6">${s === "future" ? `▼ 即將舉行（今天 ${md(today)}（${wd(today)}）起，依日期由近到遠）` : "▼ 已舉行（由近到遠）"}</td></tr>`;
+      }
+      if (mon !== lastMonth) { lastMonth = mon; html += `<tr class="cf-mon"><td colspan="6">${+mon.slice(0, 4)} 年 ${+mon.slice(5)} 月</td></tr>`; }
+      const r = x.r, segs = STOCK_SEGS.get(x.c) || [];
+      const theme = [...new Set(segs.map((s) => s.name))].slice(0, 3).join("、");
+      const tg = (x.hit.streak ? '<span class="tag hot">連增</span>' : "") + (x.hit.cum ? '<span class="tag hot">累積</span>' : "") + (x.hit.jump ? '<span class="tag hot">跳升</span>' : "");
+      html += `<tr class="${x.past ? "past" : ""}${x.any ? " hit" : ""}" data-c="${r ? x.c : ""}">
+        <td class="cf-d"><b>${md(x.d)}</b><small>（${wd(x.d)}）${x.e ? "～" + md(x.e) : ""}</small><small>${esc(x.t)}</small></td>
+        <td class="l name"><b>${x.c}</b> ${esc(x.n)}${r && r.market === "上櫃" ? '<span class="tag">櫃</span>' : ""}${tg}</td>
+        <td class="l cf-ind">${esc(r ? r.ind : "")}${theme ? `<small>${esc(theme)}</small>` : ""}</td>
+        <td>${r ? sgn(r.d400) : "–"}<small class="cf-s">400張 週變化</small></td>
+        <td>${r ? `${r.su400}｜${r.su1000} 週` : "–"}<small class="cf-s">大戶連增</small></td>
+        <td class="l cf-msg" title="${esc(x.loc + "｜" + x.msg)}">${esc(x.loc)}<small>${esc(x.msg)}</small></td>
+      </tr>`;
+    }
+    const fut = list.filter((x) => !x.past).length, hits = list.filter((x) => x.any).length;
+    $("#confView").innerHTML = `<p class="cf-sum">共 <b>${list.length}</b> 場（未來 ${fut}、已舉行 ${list.length - fut}），其中 <b class="up">${hits}</b> 檔符合籌碼條件（連增／累積／跳升，依各分頁目前的條件）。資料更新於 ${esc(CONF.updated || "")}，來源：公開資訊觀測站。</p>
+      <div class="table-wrap"><table class="cf"><thead><tr><th class="l">日期</th><th class="l">公司</th><th class="l">產業／題材</th><th>400張</th><th>大戶連增</th><th class="l">地點／說明</th></tr></thead><tbody>${html}</tbody></table></div>`;
+  }
+
   function openDetail(code) {
     const r = rows.find((x) => x.code === code); if (!r) return;
     const s = r.st.s, dates = D.dates, pr = r.st.pr || [];
     $("#dTitle").textContent = `${r.code} ${r.name}`;
     $("#dSub").textContent = `${r.market} · ${r.ind} · 股價 ${fmt(r.price)} · 大戶連增 ${r.su400}(400)/${r.su1000}(1000) 週 · 散戶連減 ${r.sdR} 週`;
     const segs = STOCK_SEGS.get(code) || [];
-    $("#dThemes").textContent = segs.length ? "所屬題材：" + [...new Set(segs.map((s) => `${s.chain.name}／${s.name}`))].join("、") : "";
+    const nx = (CONF.items || []).filter((x) => x.c === code && (x.e || x.d) >= todayStr())[0];
+    $("#dThemes").textContent = (segs.length ? "所屬題材：" + [...new Set(segs.map((s) => `${s.chain.name}／${s.name}`))].join("、") : "") +
+      (nx ? `　｜　下次法說會：${nx.d.replace(/-/g, "/")} ${nx.t}` : "");
     $("#dChart").innerHTML = "";
     $("#dLegend").innerHTML = '<span class="up">紅＝較前一週增加</span><span class="down">綠＝較前一週減少</span><span class="flat">黑＝持平</span>';
     const g = (a, k) => (a && a[k] != null ? a[k] : null);
@@ -424,7 +497,7 @@
   }
 
   // ---------- 設定保存 ----------
-  const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople", "themeM", "themeSort", "treeChain", "treeMetric", "treeFocus"];
+  const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople", "themeM", "themeSort", "treeChain", "treeMetric", "treeFocus", "confSpan", "confChip"];
   function saveSettings() { const o = { tab }; SETTING_IDS.forEach((id) => (o[id] = $("#" + id).value)); store.set("settings", o); }
   function loadSettings() { const o = store.get("settings", null); if (!o) return; SETTING_IDS.forEach((id) => { if (o[id] != null) $("#" + id).value = o[id]; }); if (o.tab && $$(".tab").some((b) => b.dataset.tab === o.tab)) setTab(o.tab, false); }
 
@@ -459,7 +532,14 @@
     $("#themePanel").addEventListener("click", (e) => {
       const chip = e.target.closest(".tchip"); if (chip) return toggleTheme(chip.dataset.k);
       const act = e.target.closest("[data-act]")?.dataset.act;
-      if (act === "clear") { selThemes.clear(); store.set("themes", []); render(); }
+      if (act === "clear") { selThemes.clear(); store.set("themes", []); limit = PAGE; render(); }
+      if (act === "chain" || act === "all") {
+        const ch = (T.chains || []).find((x) => x.id === e.target.closest("[data-act]").dataset.ch);
+        const ks = act === "all" ? [...SEG.keys()] : ch ? ch.stages.flatMap((st) => st.segments.map((sg) => ch.id + "/" + sg.id)).filter((k) => SEG.has(k)) : [];
+        const on = ks.every((k) => selThemes.has(k));
+        ks.forEach((k) => (on ? selThemes.delete(k) : selThemes.add(k)));
+        store.set("themes", [...selThemes]); limit = PAGE; render();
+      }
       if (act === "close") { $("#themePanel").hidden = true; render(); }
     });
     $("#themeView").addEventListener("click", (e) => {
@@ -472,13 +552,14 @@
       const n = e.target.closest(".node"); if (n) return openDetail(n.dataset.c);
       const h = e.target.closest(".sh"); if (h) toggleTheme(h.dataset.k);
     });
+    $("#confView").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-c]"); if (tr && tr.dataset.c) openDetail(tr.dataset.c); });
     $("#csv").addEventListener("click", exportCsv);
     $("#dClose").addEventListener("click", () => $("#detail").close());
     $("#detail").addEventListener("click", (e) => { if (e.target.id === "detail") $("#detail").close(); });
   }
 
   (async () => {
-    try { [D, T] = await Promise.all([load(), loadThemes()]); } catch (e) {
+    try { [D, T, CONF] = await Promise.all([load(), loadThemes(), loadConf()]); } catch (e) {
       $("#stamp").textContent = "資料載入失敗：" + e.message; return;
     }
     $("#retailLabel").textContent = D.retailLabel;
