@@ -31,6 +31,9 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 抓取最新一週
         run: python scripts/fetch_weekly.py
+      - name: 補齊各週收盤價
+        run: python scripts/fetch_prices_hist.py
+        continue-on-error: true
       - name: 產生網站資料並提交
         run: |
           git config user.name "github-actions[bot]"
