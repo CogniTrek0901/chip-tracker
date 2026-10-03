@@ -85,25 +85,34 @@ def main() -> int:
         mm = today.month - 1 + k
         months.append((today.year + mm // 12, mm % 12 + 1))
     items, ok = {}, 0
+    path = DATA_DIR / "conferences.json"
+    old = load_json(path, {}) or {}
+    for it in old.get("items", []):  # 先放舊資料，這次查詢失敗的月份不會消失
+        items[(it["c"], it["d"], it["t"])] = it
     for y, m in months:
         for market in ("sii", "otc"):
-            try:
-                got = fetch(market, y, m)
+            # 觀測站查太快會擋（回 0 筆或拒絕連線），失敗就等久一點再試
+            for attempt in range(4):
+                try:
+                    got = fetch(market, y, m)
+                except Exception as e:
+                    got = None
+                    print(f"  ! {y}-{m:02d} {market} 第 {attempt + 1} 次失敗：{str(e)[:80]}", file=sys.stderr)
+                if got or (got is not None and attempt >= 1):
+                    break
+                time.sleep(20 * (attempt + 1))
+            if got is not None:
                 ok += 1
                 for it in got:
                     items[(it["c"], it["d"], it["t"])] = it
                 print(f"{y}-{m:02d} {market}：{len(got)} 筆")
-            except Exception as e:
-                print(f"  ! {y}-{m:02d} {market} 失敗：{e}", file=sys.stderr)
-            time.sleep(3)
+            time.sleep(8)
     if not ok:
         print("全部失敗，保留舊資料", file=sys.stderr)
         return 0
     lo = months[0]
     start = dt.date(lo[0], lo[1], 1).isoformat()
     rows = sorted((v for v in items.values() if v["d"] >= start), key=lambda v: (v["d"], v["c"]))
-    path = DATA_DIR / "conferences.json"
-    old = load_json(path, {}) or {}
     if not rows and old.get("items"):
         print("本次沒抓到任何資料，保留舊資料", file=sys.stderr)
         return 0
