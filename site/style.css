@@ -333,3 +333,21 @@ dialog { width: min(1180px, calc(100vw - 24px)); }
 .chipdt .dt { position: sticky; left: 0; background: var(--card); font-weight: 600; }
 .chipdt thead .dt { background: var(--tiff-soft); }
 .chipdt tbody tr:nth-child(even) td.dt { background: color-mix(in srgb, var(--tiff-soft) 35%, var(--card)); }
+/* 題材全選 */
+.theme-panel .grp b { display: flex; align-items: center; gap: 8px; }
+.selall { font: inherit; font-size: 12px; font-weight: 500; padding: 1px 10px; border-radius: 12px; border: 1px solid var(--tiff-deep); background: transparent; color: var(--tiff-deep); cursor: pointer; }
+.selall:hover, .selall.on { background: var(--tiff-deep); color: #fff; }
+/* 法說會 */
+.conf-view { margin-top: 12px; }
+.cf-sum { font-size: 13px; color: var(--muted); margin: 4px 2px 10px; }
+table.cf td { vertical-align: top; }
+table.cf small { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; }
+table.cf .cf-d { white-space: nowrap; }
+table.cf .cf-d b { font-size: 15px; }
+table.cf .cf-msg { max-width: 360px; white-space: normal; font-size: 13px; }
+table.cf .cf-msg small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+table.cf tr[data-c]:not([data-c=""]) { cursor: pointer; }
+table.cf tr.past td { opacity: .55; }
+table.cf tr.hit td.name { background: color-mix(in srgb, var(--up) 7%, transparent); }
+table.cf tr.cf-mon td { background: var(--tiff-soft); color: var(--tiff-ink); font-weight: 700; font-size: 13px; padding: 6px 10px; text-align: left; }
+table.cf tr.cf-today td { color: var(--tiff-deep); font-weight: 700; font-size: 13px; text-align: left; border-top: 2px solid var(--tiff-deep); padding: 6px 10px; }
