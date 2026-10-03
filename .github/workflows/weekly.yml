@@ -34,6 +34,9 @@ jobs:
       - name: 補齊各週收盤價
         run: python scripts/fetch_prices_hist.py
         continue-on-error: true
+      - name: 更新法說會行事曆
+        run: python scripts/fetch_conferences.py
+        continue-on-error: true
       - name: 產生網站資料並提交
         run: |
           git config user.name "github-actions[bot]"
@@ -42,6 +45,7 @@ jobs:
           git diff --cached --quiet || git commit -m "資料更新 $(date -u +%F)"
           git pull --rebase -X theirs origin main
           python scripts/build_summary.py
+          cp data/conferences.json site/data/conferences.json 2>/dev/null || true
           git add site/data
           git diff --cached --quiet || git commit -m "更新網站資料 $(date -u +%F)"
           git push
