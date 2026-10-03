@@ -318,3 +318,18 @@ body.intro-lock main.wrap, body.intro-lock header.top { opacity: 0; transform: t
 tbody tr:nth-child(even) td.name { background: color-mix(in srgb, var(--tiff-soft) 35%, var(--card)); }
 .tabs { scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
+/* 個股籌碼明細表（紅增／綠減／黑持平） */
+dialog { width: min(1180px, calc(100vw - 24px)); }
+#dLegend { gap: 16px; font-size: 13px; }
+#dLegend .flat { color: var(--ink); }
+.chipdt-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.chipdt { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.chipdt th { background: var(--tiff-soft); color: var(--tiff-ink); font-weight: 600; font-size: 12.5px; line-height: 1.35; padding: 8px 10px; text-align: center; white-space: nowrap; cursor: default; position: static; }
+.chipdt td { padding: 7px 10px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--ink); }
+.chipdt tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--tiff-soft) 35%, transparent); }
+.chipdt td.up { color: var(--up); font-weight: 600; }
+.chipdt td.down { color: var(--down); font-weight: 600; }
+.chipdt td.flat { color: var(--ink); }
+.chipdt .dt { position: sticky; left: 0; background: var(--card); font-weight: 600; }
+.chipdt thead .dt { background: var(--tiff-soft); }
+.chipdt tbody tr:nth-child(even) td.dt { background: color-mix(in srgb, var(--tiff-soft) 35%, var(--card)); }
