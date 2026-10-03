@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>大戶籌碼追蹤</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600&family=Cormorant+Garamond:wght@600&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -32,6 +34,7 @@
   })();
 </script>
 <header class="top">
+  <button class="scroll-key" id="scrollKey" aria-label="創站緣起" title="緣起">卷</button>
   <div class="wrap">
     <div class="brand">
       <div>
@@ -186,6 +189,21 @@
   </div>
 </dialog>
 
+<div id="scroll" class="scroll" role="dialog" aria-modal="true" aria-label="CogniTrek 創站緣起" hidden>
+  <div class="scroll-bg"></div>
+  <div class="scroll-body">
+    <i class="rod rod-r"></i>
+    <div class="paper"><div class="paper-in">
+      <h2 class="sc-title">CogniTrek</h2>
+      <p class="sc-name"><span>Cogni</span>取自 Cognition，認知之始；<span>Trek</span>意為長途跋涉，探索之旅。</p>
+      <p class="sc-motto">人生是一場認知的長征。<br>視野拓展到哪裡，<br>財富的邊界就延伸到哪裡。</p>
+      <p class="sc-why">築此一站，不為報明牌。從集保籌碼出發，看大戶進退、散戶聚散；再循產業之鏈，上溯其源，下尋其流，由一點而一線，由一線而一面。願與同行者，於數字之間讀懂資金的腳步，一步一步，走完這段認知的長路。</p>
+      <p class="sc-sign">CogniTrek 謹識<span class="seal">認知<br>長征</span></p>
+    </div></div>
+    <i class="rod rod-l"></i>
+  </div>
+  <button class="scroll-x" id="scrollX" aria-label="收起卷軸">收卷</button>
+</div>
 <script src="app.js"></script>
 <script>
   (function () {
@@ -201,6 +219,14 @@
       try { $("#introNever").checked = localStorage.getItem("chip:introNever") === "1"; } catch (e) {}
       intro.hidden = false; document.body.classList.add("intro-lock");
     }
+    var sc = $("#scroll");
+    function openScroll() { sc.hidden = false; requestAnimationFrame(function () { sc.classList.add("open"); }); document.body.classList.add("intro-lock"); }
+    function closeScroll() { sc.classList.remove("open"); sc.classList.add("closing"); document.body.classList.remove("intro-lock");
+      setTimeout(function () { sc.hidden = true; sc.classList.remove("closing"); }, 900); }
+    $("#scrollKey").addEventListener("click", openScroll);
+    $("#scrollX").addEventListener("click", closeScroll);
+    sc.querySelector(".scroll-bg").addEventListener("click", closeScroll);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !sc.hidden) closeScroll(); });
     $("#introGo").addEventListener("click", closeIntro);
     $("#introOpen").addEventListener("click", openIntro);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !intro.hidden) closeIntro(); });
