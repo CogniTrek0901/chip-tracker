@@ -1,7 +1,8 @@
 """把每週原始資料彙整成網站用的 site/data/summary.json。
 
-每檔股票每週輸出 7 個數值：
-  [400張以上持股%, 1000張以上持股%, 散戶持股%, 散戶人數, 總人數, 400張以上人數, 1000張以上人數]
+每檔股票每週輸出 12 個數值：
+  [400張以上持股%, 1000張以上持股%, 散戶持股%, 散戶人數, 總人數, 400張以上人數, 1000張以上人數,
+   集保總張數, 400張以上持有張數, 400~600張人數, 600~800張人數, 800~1000張人數]
 篩選（連續增加 / 累積幅度 / 單週跳升）在網頁端即時計算，門檻可在網頁上調整。
 """
 from __future__ import annotations
@@ -29,8 +30,13 @@ def metrics(levels: dict[int, tuple[int, int]]):
     def ppl(lvls):
         return sum(levels.get(k, (0, 0))[0] for k in lvls)
 
+    def lots(lvls):
+        return round(sum(levels.get(k, (0, 0))[1] for k in lvls) / 1000)
+
     return [pct(BIG400_LEVELS), pct(BIG1000_LEVELS), pct(RETAIL_LEVELS),
-            ppl(RETAIL_LEVELS), total_people, ppl(BIG400_LEVELS), ppl(BIG1000_LEVELS)]
+            ppl(RETAIL_LEVELS), total_people, ppl(BIG400_LEVELS), ppl(BIG1000_LEVELS),
+            round(total_shares / 1000), lots(BIG400_LEVELS),
+            ppl([12]), ppl([13]), ppl([14])]
 
 
 def main() -> int:
@@ -82,7 +88,8 @@ def main() -> int:
         "dates": dates,
         "retailLabel": RETAIL_LABEL,
         "fields": ["big400", "big1000", "retailPct", "retailPeople",
-                   "totalPeople", "big400People", "big1000People"],
+                   "totalPeople", "big400People", "big1000People",
+                   "totalLots", "big400Lots", "people400_600", "people600_800", "people800_1000"],
         "stocks": stocks,
     }
     if args.demo:
