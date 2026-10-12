@@ -495,3 +495,11 @@ button.primary:disabled { opacity: .45; cursor: not-allowed; }
 table.mini { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 13px; }
 table.mini td, table.mini th { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 table.mini .l { text-align: left; }
+/* 會員表單微調 */
+:root { --on-tiff: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --on-tiff: #052b28; } }
+:root[data-theme="dark"] { --on-tiff: #052b28; }
+button.primary, .acct-btn.solid, .acct-btn.solid:hover, .cat-filter button.on { color: var(--on-tiff); }
+.auth input:not([type=checkbox]) { width: 100%; min-width: 0; box-sizing: border-box; }
+.auth .row2 > label { min-width: 0; }
+dialog.auth-dlg { overflow-x: hidden; }
