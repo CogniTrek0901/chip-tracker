@@ -503,3 +503,4 @@ button.primary, .acct-btn.solid, .acct-btn.solid:hover, .cat-filter button.on { 
 .auth input:not([type=checkbox]) { width: 100%; min-width: 0; box-sizing: border-box; }
 .auth .row2 > label { min-width: 0; }
 dialog.auth-dlg { overflow-x: hidden; }
+.auth label { white-space: normal; }
