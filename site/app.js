@@ -192,6 +192,17 @@
     }
     renderThemeBar();
     const cn = $('[data-count="conf"]'); if (cn) cn.textContent = confList(c).filter((x) => !x.past).length;
+    const isMember = tab === "board" || tab === "admin";
+    $(".panel").hidden = isMember;
+    $("#boardView").hidden = tab !== "board";
+    $("#adminView").hidden = tab !== "admin";
+    if (isMember) {
+      ["#tableWrap", "#themeView", "#treeView", "#confView", "#more"].forEach((s) => ($(s).hidden = true));
+      document.dispatchEvent(new CustomEvent("ct:tab", { detail: tab }));
+      saveSettings();
+      return;
+    }
+    document.dispatchEvent(new CustomEvent("ct:tab", { detail: tab }));
     const isTable = !["themes", "tree", "conf"].includes(tab);
     $("#tableWrap").hidden = !isTable;
     $("#themeView").hidden = tab !== "themes";
@@ -499,7 +510,7 @@
   // ---------- 設定保存 ----------
   const SETTING_IDS = ["streakN", "streakBig", "streakRetail", "cumM", "cumBig", "cumBig1000", "cumRetail", "jump400", "jump1000", "jumpX", "market", "minPrice", "minPeople", "themeM", "themeSort", "treeChain", "treeMetric", "treeFocus", "confSpan", "confChip"];
   function saveSettings() { const o = { tab }; SETTING_IDS.forEach((id) => (o[id] = $("#" + id).value)); store.set("settings", o); }
-  function loadSettings() { const o = store.get("settings", null); if (!o) return; SETTING_IDS.forEach((id) => { if (o[id] != null) $("#" + id).value = o[id]; }); if (o.tab && $$(".tab").some((b) => b.dataset.tab === o.tab)) setTab(o.tab, false); }
+  function loadSettings() { const o = store.get("settings", null); if (!o) return; SETTING_IDS.forEach((id) => { if (o[id] != null) $("#" + id).value = o[id]; }); if (o.tab && o.tab !== "admin" && $$(".tab").some((b) => b.dataset.tab === o.tab)) setTab(o.tab, false); }
 
   function setTab(t, draw = true) {
     tab = t; sort = null; limit = PAGE;
