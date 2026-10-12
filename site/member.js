@@ -128,10 +128,10 @@ function openAuth(mode) {
   } else if (mode === "register") {
     v.innerHTML = google + `<form id="fReg" novalidate>
       <div class="row2"><label>姓名<input name="name" autocomplete="name" maxlength="30" required></label>
-      <label>暱稱 <small>留言時顯示</small><input name="nick" maxlength="20" required></label></div>
+      <label>暱稱（留言時顯示）<input name="nick" maxlength="20" required></label></div>
       <label>Gmail<input name="email" type="email" autocomplete="email" placeholder="name@gmail.com" required></label>
       <label>手機<input name="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="09xxxxxxxx" maxlength="10" required></label>
-      <div class="row2"><label>密碼 <small>至少 8 碼</small><input name="pw" type="password" autocomplete="new-password" minlength="8" required></label>
+      <div class="row2"><label>密碼（至少 8 碼）<input name="pw" type="password" autocomplete="new-password" minlength="8" required></label>
       <label>確認密碼<input name="pw2" type="password" autocomplete="new-password" required></label></div>
       <label class="chk"><input name="agree" type="checkbox"> 我同意本站僅將以上資料用於會員身分與聯繫，不對外公開（暱稱除外）</label>
       <button class="primary" type="submit">註冊並寄送驗證信</button>
@@ -142,7 +142,7 @@ function openAuth(mode) {
       ${profile ? "" : '<p class="auth-note">第一次登入，請補上以下資料即可開始使用留言板。</p>'}
       <form id="fProf" novalidate>
       <div class="row2"><label>姓名<input name="name" maxlength="30" value="${esc(p.name || user?.displayName || "")}" required></label>
-      <label>暱稱 <small>留言時顯示</small><input name="nick" maxlength="20" value="${esc(p.nickname || "")}" required></label></div>
+      <label>暱稱（留言時顯示）<input name="nick" maxlength="20" value="${esc(p.nickname || "")}" required></label></div>
       <label>Gmail<input value="${esc(user?.email || "")}" disabled></label>
       <label>手機<input name="phone" type="tel" inputmode="numeric" placeholder="09xxxxxxxx" maxlength="10" value="${esc(p.phone || "")}" required></label>
       <button class="primary" type="submit">儲存</button></form>`;
