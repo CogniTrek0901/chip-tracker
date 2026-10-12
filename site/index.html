@@ -42,7 +42,10 @@
         <p class="sub">集保戶股權分散表 · 每週更新 · 400張／1000張大戶 vs 散戶（<span id="retailLabel">≤50張</span>）</p>
       </div>
     </div>
-    <div class="stamp" id="stamp">載入中…</div>
+    <div class="top-right">
+      <div class="acct" id="acct"></div>
+      <div class="stamp" id="stamp">載入中…</div>
+    </div>
   </div>
 </header>
 
@@ -64,6 +67,8 @@
     <button class="tab" data-tab="conf">法說會 <span class="count" data-count="conf"></span></button>
     <button class="tab" data-tab="watch">自選 <span class="count" data-count="watch"></span></button>
     <button class="tab" data-tab="all">全部</button>
+    <button class="tab tab-board" data-tab="board">留言板</button>
+    <button class="tab" data-tab="admin" hidden>後台統計</button>
   </nav>
 
   <section class="panel">
@@ -156,6 +161,8 @@
   <div id="themeView" class="theme-view" hidden></div>
   <div id="treeView" class="tree-view" hidden></div>
   <div id="confView" class="conf-view" hidden></div>
+  <div id="boardView" class="board-view" hidden></div>
+  <div id="adminView" class="admin-view" hidden></div>
 
   <div class="table-wrap" id="tableWrap">
     <table id="tbl">
@@ -169,6 +176,7 @@
   <p class="foot">
     資料來源：<a href="https://www.tdcc.com.tw/portal/zh/smWeb/qryStock" target="_blank" rel="noopener">臺灣集中保管結算所 集保戶股權分散表</a>、證交所、櫃買中心。
     法說會資料來自公開資訊觀測站法人說明會一覽表。
+    本站使用 Google Analytics 與匿名瀏覽統計了解使用情形；會員資料僅用於身分識別與聯繫，不對外公開。
     題材與產業鏈分類為整理參考，可在 site/data/themes.json 增修。
     400張以上＝持股 400,001 股以上（分級 12–15）；1000張以上＝1,000,001 股以上（分級 15）。
     持股比例＝該分級股數 ÷ 集保庫存總股數。僅供研究參考，非投資建議。
@@ -204,7 +212,17 @@
   </div>
   <button class="scroll-x" id="scrollX" aria-label="收起卷軸">收卷</button>
 </div>
+<dialog id="authDlg" class="auth-dlg" aria-label="會員登入">
+  <div class="auth">
+    <button class="x" id="authX" aria-label="關閉">×</button>
+    <p class="auth-brand">CogniTrek</p>
+    <nav class="auth-tabs" id="authTabs"><button data-m="login">登入</button><button data-m="register">註冊</button></nav>
+    <div id="authBody"></div>
+    <p id="authMsg" class="auth-msg" role="status"></p>
+  </div>
+</dialog>
 <script src="app.js"></script>
+<script type="module" src="member.js"></script>
 <script>
   (function () {
     var $ = function (s) { return document.querySelector(s); };
