@@ -353,7 +353,7 @@ async function renderAdmin() {
   try {
     const since = Timestamp.fromDate(new Date(Date.now() - 30 * 864e5));
     const [vs, us, ps] = await Promise.all([
-      getDocs(query(collection(db, "visits"), where("ts", ">=", since), orderBy("ts", "desc"), limit(20000))),
+      getDocs(query(collection(db, "visits"), where("ts", ">=", since), orderBy("ts", "desc"), limit(10000))),
       getDocs(query(collection(db, "users"), orderBy("created", "desc"), limit(500))),
       getDocs(query(collection(db, "posts"), orderBy("ts", "desc"), limit(500))),
     ]);
