@@ -504,3 +504,4 @@ button.primary, .acct-btn.solid, .acct-btn.solid:hover, .cat-filter button.on { 
 .auth .row2 > label { min-width: 0; }
 dialog.auth-dlg { overflow-x: hidden; }
 .auth label { white-space: normal; }
+@media (max-width: 700px) { .acct-menu { left: 0; right: auto; max-width: calc(100vw - 32px); } }
