@@ -192,10 +192,11 @@
     }
     renderThemeBar();
     const cn = $('[data-count="conf"]'); if (cn) cn.textContent = confList(c).filter((x) => !x.past).length;
-    const isMember = tab === "board" || tab === "admin";
+    const isMember = tab === "board" || tab === "admin" || tab === "hot";
     $(".panel").hidden = isMember;
     $("#boardView").hidden = tab !== "board";
     $("#adminView").hidden = tab !== "admin";
+    $("#hotView").hidden = tab !== "hot";
     if (isMember) {
       ["#tableWrap", "#themeView", "#treeView", "#confView", "#more"].forEach((s) => ($(s).hidden = true));
       document.dispatchEvent(new CustomEvent("ct:tab", { detail: tab }));
@@ -489,7 +490,7 @@
       lines.push(`<tr><td class="dt">${dates[i]}</td>${cells}</tr>`);
     }
     $("#dTable").innerHTML = `<div class="chipdt-wrap"><table class="chipdt"><thead><tr><th class="dt">資料日期</th>${COLS.map((c) => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${lines.join("")}</tbody></table></div>`;
-    $("#dLinks").innerHTML = `<a href="https://norway.twsthr.info/StockHolders.aspx?stock=${code}" target="_blank" rel="noopener">神秘金字塔</a><a href="https://www.tdcc.com.tw/portal/zh/smWeb/qryStock" target="_blank" rel="noopener">集保查詢</a><a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener">Yahoo股市</a>`;
+    $("#dLinks").innerHTML = `<a href="https://norway.twsthr.info/StockHolders.aspx?stock=${code}" target="_blank" rel="noopener">神秘金字塔</a><a href="https://www.tdcc.com.tw/portal/zh/smWeb/qryStock" target="_blank" rel="noopener">集保查詢</a><a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener">Yahoo股市</a><a href="#" data-rev="${code}">月營收圖表</a>`;
     const dlg = $("#detail");
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
   }
@@ -576,6 +577,8 @@
     $("#retailLabel").textContent = D.retailLabel;
     const last = D.dates[D.dates.length - 1];
     $("#stamp").innerHTML = `資料日期 <b>${last.slice(0, 4)}/${last.slice(4, 6)}/${last.slice(6)}</b> · 共 ${D.dates.length} 週 · ${D.stocks.length} 檔<br>更新於 ${D.updated}${D.demo ? '<span class="demo">示範資料</span>' : ""}`;
-    prep(); prepThemes(); bind(); loadSettings(); render();
+    prep(); prepThemes();
+    window.CT = { byCode: new Map(rows.map((r) => [r.code, r])), cfg, pass };
+    bind(); loadSettings(); render();
   })();
 })();
