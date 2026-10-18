@@ -1,0 +1,63 @@
+name: 每日強勢族群
+
+on:
+  schedule:
+    # 台北時間 週一～五 14:47 收盤後、19:07 再跑一次（新聞與重大訊息較齊全，AI 理由較準）
+    - cron: "47 6 * * 1-5"
+    - cron: "7 11 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "日期 YYYYMMDD（空白＝今天）"
+        required: false
+        default: ""
+      rev_pages:
+        description: "本次最多抓幾頁月營收（首次補 5 年請填 300）"
+        required: false
+        default: "24"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: chip-data
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: 月營收
+        run: python scripts/fetch_revenue.py
+        env:
+          REV_MAX_PAGES: ${{ inputs.rev_pages || '24' }}
+        continue-on-error: true
+      - name: 強勢族群
+        run: python scripts/fetch_daily.py ${{ inputs.date }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-flash-latest' }}
+        continue-on-error: true
+      - name: 提交資料
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data site/data
+          git diff --cached --quiet || git commit -m "強勢族群與月營收 $(date -u +%F)"
+          git pull --rebase -X theirs origin main
+          git push
+      - name: 加上版本號避免瀏覽器快取舊檔
+        run: sed -i -e "s#href=\"style.css\"#href=\"style.css?v=${GITHUB_SHA::7}\"#" -e "s#src=\"app.js\"#src=\"app.js?v=${GITHUB_SHA::7}\"#" -e "s#src=\"member.js\"#src=\"member.js?v=${GITHUB_SHA::7}\"#" -e "s#src=\"hot.js\"#src=\"hot.js?v=${GITHUB_SHA::7}\"#" site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
