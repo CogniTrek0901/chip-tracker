@@ -3,7 +3,9 @@
 - 上市：證交所 MI_INDEX（行情）＋ T86（三大法人）
 - 上櫃：櫃買中心（常擋 GitHub 主機）→ 失敗改用 Yahoo spark 批次報價
 - 每檔強勢股另抓近 5 年月收盤（Yahoo），存 site/data/price/{代號}.json
-- 若有環境變數 GEMINI_API_KEY，請 Gemini（含 Google 搜尋）寫 1–2 行理由與近期重大事件
+- 每檔抓 Google 新聞 RSS 近 7 天標題，挑 2 則最相關的當「近期新聞」（免金鑰、免費）
+- 若有 GEMINI_API_KEY（AI Studio 免費層即可），請 Gemini 依這些標題濃縮成 1 句理由與族群；
+  GEMINI_SEARCH=1 時才另開 Google 搜尋（需付費層）
 用法：python scripts/fetch_daily.py [YYYYMMDD]
 """
 from __future__ import annotations
@@ -174,25 +176,83 @@ def load_groups():
     return g
 
 
+# ---------------- 新聞（Google 新聞 RSS） ----------------
+GOOD_SRC = ("鉅亨", "經濟日報", "工商", "自由時報", "中時", "MoneyDJ", "聚財", "FTNN", "中央社", "財訊", "今周刊",
+            "商周", "Yahoo", "ETtoday", "三立", "TVBS", "數位時代", "DIGITIMES", "科技新報", "旺得富", "優分析", "UDN", "聯合")
+BAD = ("爆料同學會", "個股概覽", "營收查詢", "今日股價與討論", "當沖選股", "撿便宜還是", "被套牢", "討論牆")
+HOT_KW = ("漲停", "營收", "訂單", "法說", "新高", "受惠", "題材", "接單", "獲利", "EPS", "擴產", "合作", "併購", "AI", "出貨", "報價", "漲價")
+
+
+def news_for(code: str, name: str, day: str) -> list[list]:
+    """回傳 [[標題, 來源, 連結, MM/DD], ...] 最多 2 則。"""
+    from email.utils import parsedate_to_datetime
+    from html import unescape
+    url = "https://news.google.com/rss/search"
+    q = {"q": f"{name} {code} when:7d", "hl": "zh-TW", "gl": "TW", "ceid": "TW:zh-Hant"}
+    try:
+        r = requests.get(url, params=q, headers=UA, timeout=20)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"  ! 新聞 {code} 失敗：{str(e)[:80]}", file=sys.stderr)
+        return []
+    end = dt.datetime.strptime(day, "%Y%m%d").replace(tzinfo=TZ) + dt.timedelta(hours=23, minutes=59)
+    cand = []
+    for it in re.findall(r"<item>([\s\S]*?)</item>", r.text):
+        g = lambda t: unescape((re.search(rf"<{t}[^>]*>([\s\S]*?)</{t}>", it) or [None, ""])[1]).strip()
+        title, link, src, pub = g("title"), g("link"), g("source"), g("pubDate")
+        if src and title.endswith(" - " + src):
+            title = title[: -len(src) - 3]
+        title = re.sub(r"\s*-\s*(股市爆料同學會|CMoney)$", "", title).strip()
+        if not title or any(b in title for b in BAD) or "CMoney" == src:
+            continue
+        if name not in title and code not in title:
+            continue
+        try:
+            t = parsedate_to_datetime(pub).astimezone(TZ)
+        except Exception:
+            continue
+        if t > end:
+            continue
+        age = (end - t).total_seconds() / 86400
+        sc = -age * 1.2 + (2 if any(s in src for s in GOOD_SRC) else 0) + sum(1 for k in HOT_KW if k in title)
+        sc -= 2 if re.search(r"[?？]", title) else 0
+        cand.append((sc, title[:60], src, link, t.strftime("%m/%d")))
+    cand.sort(key=lambda x: -x[0])
+    out, seen = [], set()
+    for sc, title, src, link, d in cand:
+        k = re.sub(r"\W", "", title)[:12]
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append([title, src, link, d])
+        if len(out) == 2:
+            break
+    return out
+
+
 # ---------------- Gemini ----------------
 def gemini_reasons(items: list[dict], day: str) -> dict:
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key or not items:
         return {}
     model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+    search = os.environ.get("GEMINI_SEARCH", "") == "1"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     out = {}
     for i in range(0, len(items), 10):
         batch = items[i:i + 10]
-        lines = "\n".join(f"- {x['c']} {x['n']}（{x['m']}，{x['ind']}）今日漲 {x['pct']:.2f}%" for x in batch)
+        lines = "\n".join(f"- {x['c']} {x['n']}（{x['m']}，{x['ind']}）今日漲 {x['pct']:.2f}%；近期新聞："
+                          + ("；".join(f"{n[3]} {n[0]}" for n in x.get("news", [])) or "無") for x in batch)
+        how = ("請用 Google 搜尋查近期新聞、公開資訊觀測站重大訊息、營收或法說會" if search
+               else "只根據下面提供的新聞標題判斷，不要編造標題沒提到的數字或事件")
         prompt = (f"你是台股盤後分析助理。日期 {day[:4]}/{day[4:6]}/{day[6:]}。以下個股今日大漲或漲停，"
-                  "請用 Google 搜尋查近期新聞、公開資訊觀測站重大訊息、營收或法說會，為每檔寫：\n"
+                  f"{how}，為每檔寫：\n"
                   "reason：今日上漲的可能原因（繁體中文，40 字內，具體、不誇大，不構成投資建議）\n"
-                  "event：最近 2 週內的重大事件（含日期，40 字內；查不到就寫空字串）\n"
+                  "event：最近 2 週內的重大事件（含日期，40 字內；沒有就寫空字串）\n"
                   "grp：所屬題材族群（2–6 字，如 CPO、記憶體、機器人、重電）\n"
                   "只輸出 JSON 陣列，格式 [{\"c\":\"代號\",\"reason\":\"...\",\"event\":\"...\",\"grp\":\"...\"}]，不要其他文字。\n" + lines)
         body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "tools": [{"google_search": {}}],
+                **({"tools": [{"google_search": {}}]} if search else {}),
                 "generationConfig": {"temperature": 0.3}}
         for attempt in range(3):
             try:
@@ -260,6 +320,10 @@ def main() -> int:
         del x["high"]
     movers.sort(key=lambda x: (-x["lu"], -x["pct"]))
 
+    for x in movers:
+        x["news"] = news_for(x["c"], x["n"], day)
+        time.sleep(0.8)
+    print(f"新聞：{sum(1 for x in movers if x['news'])}／{len(movers)} 檔有近期新聞")
     ai = gemini_reasons(movers, day)
     for x in movers:
         a = ai.get(x["c"], {})
