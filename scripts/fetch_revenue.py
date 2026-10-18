@@ -97,7 +97,7 @@ def main() -> int:
         key = f"{y}{m:02d}"
         path = REV_DIR / f"{key}.json"
         have = load_json(path, None)
-        if have and i >= 2:
+        if have and i >= 2 and len(have) >= 1500:  # 已完整的月份不重抓；不完整（某頁失敗）的下次補
             continue
         if pages + 4 > max_pages:
             print(f"已達本次上限 {max_pages} 頁，其餘下次再補")
@@ -116,7 +116,7 @@ def main() -> int:
                 if got:
                     merged.update(got)
                 time.sleep(2.5)
-        if merged and (ok or not have):
+        if merged and (ok or len(merged) > len(have or {})):
             save_json(path, merged, compact=True)
             print(f"{key}：{len(merged)} 家")
         elif not merged:
