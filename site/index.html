@@ -80,6 +80,7 @@
     <button class="tab" data-tab="combo">多重符合 <span class="count" data-count="combo"></span></button>
     <button class="tab" data-tab="themes">題材總覽</button>
     <button class="tab" data-tab="tree">產業樹狀圖</button>
+    <button class="tab tab-hot" data-tab="hot">強勢族群</button>
     <button class="tab" data-tab="conf">法說會 <span class="count" data-count="conf"></span></button>
     <button class="tab" data-tab="watch">自選 <span class="count" data-count="watch"></span></button>
     <button class="tab" data-tab="all">全部</button>
@@ -177,6 +178,7 @@
   <div id="themeView" class="theme-view" hidden></div>
   <div id="treeView" class="tree-view" hidden></div>
   <div id="confView" class="conf-view" hidden></div>
+  <div id="hotView" class="hot-view" hidden></div>
   <div id="boardView" class="board-view" hidden></div>
   <div id="adminView" class="admin-view" hidden></div>
 
@@ -237,7 +239,14 @@
     <p id="authMsg" class="auth-msg" role="status"></p>
   </div>
 </dialog>
+<dialog id="revDlg" class="rev-dlg" aria-label="月營收">
+  <div class="dlg">
+    <div class="dlg-head"><div><h2 id="revTitle"></h2><p id="revSub" class="sub"></p></div><button class="x" id="revX" aria-label="關閉">×</button></div>
+    <div id="revBody"></div>
+  </div>
+</dialog>
 <script src="app.js"></script>
+<script src="hot.js"></script>
 <script type="module" src="member.js"></script>
 <script>
   (function () {
