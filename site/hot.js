@@ -141,7 +141,7 @@
     const x = (i) => P.l + i * bw;
     const maxI = revTab === "rev" ? vals.indexOf(Math.max(...nums)) : -1;
     let s = "";
-    for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<line class="gl" x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(revTab === "rev" ? (hi < 10 ? 1 : 0) : 0)}</text>`; }
+    for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<line class="gl" x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(revTab === "rev" ? (hi < 20 ? 1 : 0) : 0)}</text>`; }
     const z = y(Math.max(lo, 0));
     rows.forEach((r, i) => {
       const v = vals[i]; if (v == null) return;
@@ -155,7 +155,7 @@
       const pm = new Map(PRICE.m);
       const pts = rows.map((r, i) => [i, pm.get(r[0])]).filter((p) => p[1] != null);
       if (pts.length > 1) {
-        const pv = pts.map((p) => p[1]); let plo = Math.min(...pv), phi = Math.max(...pv); const pp = (phi - plo) * 0.1 || 1; plo -= pp; phi += pp;
+        const pv = pts.map((p) => p[1]); let plo = Math.min(...pv), phi = Math.max(...pv); const pp = (phi - plo) * 0.1 || 1; plo = Math.max(0, plo - pp); phi += pp * 1.6;
         const py = (v) => P.t + (phi - v) * (H - P.t - P.b) / (phi - plo);
         s += `<path class="pl" d="${pts.map((p, j) => (j ? "L" : "M") + (x(p[0]) + bw / 2).toFixed(1) + " " + py(p[1]).toFixed(1)).join("")}"/>`;
         for (let k = 0; k <= 4; k++) { const v = plo + (phi - plo) * k / 4; s += `<text class="ax" x="${W - P.r + 6}" y="${py(v) + 4}">${v.toFixed(v < 100 ? 1 : 0)}</text>`; }
