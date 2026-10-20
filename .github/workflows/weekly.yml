@@ -5,7 +5,12 @@ on:
     # 集保資料約在週五晚間～週六公布；台北時間 週六 10:07 與 週日 10:07 各跑一次（第二次是保險，已有資料會自動略過）
     - cron: "7 2 * * 6"
     - cron: "7 2 * * 0"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      skip_data:
+        description: "只重新部署網站，不抓資料"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths: ["site/*.html", "site/*.js", "site/*.css", "site/data/themes.json", "scripts/**"]
@@ -29,14 +34,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      # 只改網站程式（push）時跳過抓資料，幾分鐘內就能上線
       - name: 抓取最新一週
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_data)
         run: python scripts/fetch_weekly.py
       - name: 補齊各週收盤價
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_data)
         run: python scripts/fetch_prices_hist.py
         continue-on-error: true
       - name: 更新法說會行事曆
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_data)
         run: python scripts/fetch_conferences.py
         continue-on-error: true
+        timeout-minutes: 12
       - name: 產生網站資料並提交
         run: |
           git config user.name "github-actions[bot]"
