@@ -585,3 +585,87 @@ table.rev-tbl .l { text-align: left; }
   font-size: 12px; padding: 2px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 table.hot-tbl td.ai a.nw { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
 table.hot-tbl td.ai a.nw:hover { color: var(--accent, #c0392b); }
+
+/* ======================================================================
+   手機版優化（2026.10.20）：表格改卡片、樹狀圖改直排、分頁列固定
+   ====================================================================== */
+.msort { display: none; }
+table.cf th.l, table.cf td.name { left: auto; position: static; }
+table.cf thead th { position: sticky; top: 0; }
+@media (max-width: 640px) {
+  /* 頂部與導覽 */
+  header.top .sub { font-size: 12px; }
+  .stamp { font-size: 12px; }
+  .guide { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-top: 10px; padding-bottom: 2px; }
+  .guide::-webkit-scrollbar { display: none; }
+  .guide button { flex: none; font-size: 12.5px; padding: 4px 12px 4px 4px; box-shadow: none; }
+  .guide i { flex: none; }
+  .tabs { position: sticky; top: 0; z-index: 20; margin: 10px -4px 8px; border-radius: 12px;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .tab { flex: none; padding: 7px 12px; font-size: 14px; }
+
+  /* 篩選區：兩欄排列 */
+  .panel { padding: 12px; }
+  .rules, .filters { gap: 8px 10px; }
+  .rules label, .filters label { font-size: 13px; }
+  .filters input[type=search] { flex: 1 1 100%; }
+  .filters > select, .filters > button, .filters > label { flex: 1 1 calc(50% - 10px); }
+  .filters label input[type=number] { width: 64px; }
+  body[data-tab="streak"] .msort, body[data-tab="cum"] .msort, body[data-tab="jump"] .msort,
+  body[data-tab="combo"] .msort, body[data-tab="watch"] .msort, body[data-tab="all"] .msort {
+    display: flex; flex: 1 1 100%; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  .msort select { flex: 1; min-width: 0; }
+  .msort button { flex: none; }
+
+  /* 主表格 → 卡片 */
+  #tbl thead { display: none; }
+  #tbl, #tbl tbody { display: block; }
+  #tbl tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; padding: 10px 10px 10px 38px;
+    position: relative; border-bottom: 1px solid var(--line); }
+  #tbl td { display: block; padding: 0; border: 0; text-align: left; white-space: normal; font-size: 14px; position: static; background: none; min-width: 0; }
+  #tbl td::before { content: attr(data-l); display: block; font-size: 11px; color: var(--muted); line-height: 1.3; }
+  #tbl td.star { position: absolute; left: 10px; top: 9px; width: auto; font-size: 20px; }
+  #tbl td.star::before, #tbl td.name::before, #tbl td:last-child::before { content: none; }
+  #tbl td.name { grid-column: 1 / -1; font-size: 15px; line-height: 1.5; padding-right: 86px; }
+  #tbl td { font-size: 13.5px; }
+  #tbl td.name small { margin-left: 4px; }
+  #tbl td:last-child { position: absolute; right: 10px; top: 8px; }
+  #tbl td .d { display: block; margin-left: 0; font-size: 11.5px; }
+  #tbl tbody tr:hover td.name { background: none; }
+  .table-wrap { overflow-x: visible; }
+
+  /* 法說會 → 卡片 */
+  table.cf thead { display: none; }
+  table.cf, table.cf tbody { display: block; }
+  table.cf tr { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  table.cf tr.cf-mon, table.cf tr.cf-today { display: block; padding: 0; }
+  table.cf td { display: block; padding: 0; border: 0; text-align: left; white-space: normal; background: none; }
+  table.cf .cf-d { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  table.cf .cf-d small { display: inline; }
+  table.cf td.name { grid-column: 1 / -1; font-size: 15px; }
+  table.cf .cf-ind { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+  table.cf .cf-ind small { display: inline; margin-left: 6px; }
+  table.cf .cf-s { display: inline; margin-left: 4px; }
+  table.cf .cf-msg { grid-column: 1 / -1; max-width: none; }
+  table.cf tr.hit td.name { background: none; }
+  table.cf tr.hit { background: color-mix(in srgb, var(--up) 6%, transparent); }
+
+  /* 產業樹狀圖 → 由上而下直排，不用左右捲動 */
+  .tree-view { padding: 12px; overflow-x: visible; }
+  .tree { display: block; min-width: 0; }
+  .troot { display: none; }
+  .tstage { width: auto; }
+  .tstage + .tstage { margin-top: 22px; }
+  .tstage + .tstage::before { content: "▼"; position: static; display: block; text-align: center; margin: -14px 0 6px; font-size: 14px; }
+  .tsegs { border-left: 0; padding-left: 0; }
+  .tseg::before { display: none; }
+  .tseg .nodes { flex-wrap: wrap; }
+  .flow { flex-direction: column; gap: 4px; }
+  .flow .fs { min-width: 0; }
+  .flow .arr { transform: rotate(90deg); line-height: 1; }
+
+  /* 題材卡片、彈窗 */
+  .tcards { grid-template-columns: 1fr !important; }
+  dialog { width: calc(100vw - 16px); max-height: 92vh; }
+  .dlg { padding: 14px 12px; max-height: 90vh; }
+}
