@@ -146,22 +146,27 @@
     return [
       { k: "star", t: "", cls: "star", html: (r) => watch.has(r.code) ? "★" : "☆", nosort: true },
       { k: "code", t: "股票", l: true, v: (r) => r.code, html: (r) => `<b>${r.code}</b> ${esc(r.name)}<small>${esc(r.ind)}</small>${r.market === "上櫃" ? '<span class="tag">櫃</span>' : ""}${tags(r, c)}`, cls: "name" },
-      { k: "price", t: "股價", v: (r) => r.price, html: (r) => fmt(r.price, r.price >= 100 ? 1 : 2) },
-      { k: "b400", t: "400張以上%", s: "週變化", v: (r) => r.d400, html: (r) => fmt(r.b400) + sgn(r.d400) },
-      { k: "b1000", t: "1000張以上%", s: "週變化", v: (r) => r.d1000, html: (r) => fmt(r.b1000) + sgn(r.d1000) },
-      { k: "rPct", t: `散戶${D.retailLabel}%`, s: "週變化", v: (r) => r.dR, html: (r) => fmt(r.rPct) + sgn(r.dR) },
-      { k: "rPpl", t: "散戶人數", s: "週變化%", v: (r) => r.dRpplPct, html: (r) => int(r.rPpl) + sgn(r.dRpplPct, 1, "%") },
-      { k: "tPpl", t: "總股東數", s: "週變化%", v: (r) => r.dTpplPct, html: (r) => int(r.tPpl) + sgn(r.dTpplPct, 1, "%") },
-      { k: "su", t: "大戶連增", s: "400｜1000", v: (r) => r.su400 * 100 + r.su1000, html: (r) => `${r.su400}｜${r.su1000} 週` },
-      { k: "sd", t: "散戶連減", s: "比例｜人數", v: (r) => r.sdR * 100 + r.sdRppl, html: (r) => `${r.sdR}｜${r.sdRppl} 週` },
-      { k: "c400", t: `近${c.M}週 Δ400`, s: "百分點", v: (r) => r.chg(F.b400, c.M), html: (r) => sgn(r.chg(F.b400, c.M)) },
-      { k: "c1000", t: `近${c.M}週 Δ1000`, s: "百分點", v: (r) => r.chg(F.b1000, c.M), html: (r) => sgn(r.chg(F.b1000, c.M)) },
-      { k: "cR", t: `近${c.M}週 Δ散戶`, s: "百分點", v: (r) => r.chg(F.rPct, c.M), html: (r) => sgn(r.chg(F.rPct, c.M)) },
+      { k: "price", m: "股價", t: "股價", v: (r) => r.price, html: (r) => fmt(r.price, r.price >= 100 ? 1 : 2) },
+      { k: "b400", m: "400張%", t: "400張以上%", s: "週變化", v: (r) => r.d400, html: (r) => fmt(r.b400) + sgn(r.d400) },
+      { k: "b1000", m: "1000張%", t: "1000張以上%", s: "週變化", v: (r) => r.d1000, html: (r) => fmt(r.b1000) + sgn(r.d1000) },
+      { k: "rPct", m: "散戶%", t: `散戶${D.retailLabel}%`, s: "週變化", v: (r) => r.dR, html: (r) => fmt(r.rPct) + sgn(r.dR) },
+      { k: "rPpl", m: "散戶人數", t: "散戶人數", s: "週變化%", v: (r) => r.dRpplPct, html: (r) => int(r.rPpl) + sgn(r.dRpplPct, 1, "%") },
+      { k: "tPpl", m: "股東數", t: "總股東數", s: "週變化%", v: (r) => r.dTpplPct, html: (r) => int(r.tPpl) + sgn(r.dTpplPct, 1, "%") },
+      { k: "su", m: "大戶連增", t: "大戶連增", s: "400｜1000", v: (r) => r.su400 * 100 + r.su1000, html: (r) => `${r.su400}｜${r.su1000} 週` },
+      { k: "sd", m: "散戶連減", t: "散戶連減", s: "比例｜人數", v: (r) => r.sdR * 100 + r.sdRppl, html: (r) => `${r.sdR}｜${r.sdRppl} 週` },
+      { k: "c400", m: `Δ400·${c.M}週`, t: `近${c.M}週 Δ400`, s: "百分點", v: (r) => r.chg(F.b400, c.M), html: (r) => sgn(r.chg(F.b400, c.M)) },
+      { k: "c1000", m: `Δ1000·${c.M}週`, t: `近${c.M}週 Δ1000`, s: "百分點", v: (r) => r.chg(F.b1000, c.M), html: (r) => sgn(r.chg(F.b1000, c.M)) },
+      { k: "cR", m: `Δ散戶·${c.M}週`, t: `近${c.M}週 Δ散戶`, s: "百分點", v: (r) => r.chg(F.rPct, c.M), html: (r) => sgn(r.chg(F.rPct, c.M)) },
       { k: "spark", t: "400張%走勢", nosort: true, html: (r) => spark(r.st.s.map((x) => (x ? x[F.b400] : null)).slice(-12)) },
     ];
   }
   const defaultSort = { streak: { key: "su", dir: -1 }, cum: { key: "c400", dir: -1 }, jump: { key: "b400", dir: -1 }, combo: { key: "c400", dir: -1 }, watch: { key: "code", dir: 1 }, all: { key: "code", dir: 1 } };
 
+  // 欄位名稱（純文字，給手機卡片與排序選單用）
+  function lab(x) {
+    const t = String(x.t || "").replace(/<[^>]+>/g, "");
+    return x.s && !/變化/.test(x.s) ? `${t}（${x.s}）` : t;
+  }
   function tags(r, c) {
     let t = "";
     if (pass.streak(r, c)) t += '<span class="tag hot">連增</span>';
@@ -193,6 +198,7 @@
     renderThemeBar();
     const cn = $('[data-count="conf"]'); if (cn) cn.textContent = confList(c).filter((x) => !x.past).length;
     const isMember = tab === "board" || tab === "admin" || tab === "hot";
+    document.body.dataset.tab = tab;
     $(".panel").hidden = isMember;
     $("#boardView").hidden = tab !== "board";
     $("#adminView").hidden = tab !== "admin";
@@ -230,7 +236,13 @@
       `<th class="${x.l ? "l" : ""} ${x.k === so.key ? "sorted" : ""}" data-k="${x.nosort ? "" : x.k}">${x.t}${x.k === so.key ? (so.dir > 0 ? " ▲" : " ▼") : ""}${x.s ? `<span class="sub2">${x.s}</span>` : ""}</th>`).join("") + "</tr>";
     const shown = current.slice(0, limit);
     $("#tbl tbody").innerHTML = shown.map((r) =>
-      `<tr data-c="${r.code}">` + cs.map((x) => `<td class="${x.l ? "l " : ""}${x.cls || ""}${x.k === "star" && watch.has(r.code) ? " on" : ""}">${x.html(r)}</td>`).join("") + "</tr>").join("");
+      `<tr data-c="${r.code}">` + cs.map((x) => `<td class="${x.l ? "l " : ""}${x.cls || ""}${x.k === "star" && watch.has(r.code) ? " on" : ""}" data-l="${esc(x.m || lab(x))}">${x.html(r)}</td>`).join("") + "</tr>").join("");
+    // 手機版：表頭隱藏，改用下拉選單排序
+    const ms = $("#mSort");
+    if (ms) {
+      ms.innerHTML = cs.filter((x) => !x.nosort).map((x) => `<option value="${x.k}" ${x.k === so.key ? "selected" : ""}>${esc(lab(x) || "代號")}</option>`).join("");
+      $("#mDir").textContent = so.dir > 0 ? "小→大" : "大→小";
+    }
     $("#empty").hidden = current.length > 0;
     $("#more").hidden = current.length <= limit;
     $("#showMore").textContent = `顯示更多（還有 ${current.length - limit} 檔）`;
@@ -440,7 +452,7 @@
       html += `<tr class="${x.past ? "past" : ""}${x.any ? " hit" : ""}" data-c="${r ? x.c : ""}">
         <td class="cf-d"><b>${md(x.d)}</b><small>（${wd(x.d)}）${x.e ? "～" + md(x.e) : ""}</small><small>${esc(x.t)}</small></td>
         <td class="l name"><b>${x.c}</b> ${esc(x.n)}${r && r.market === "上櫃" ? '<span class="tag">櫃</span>' : ""}${tg}</td>
-        <td class="l cf-ind">${esc(r ? r.ind : "")}${theme ? `<small>${esc(theme)}</small>` : ""}</td>
+        <td class="l cf-ind" data-l="產業">${esc(r ? r.ind : "")}${theme ? `<small>${esc(theme)}</small>` : ""}</td>
         <td>${r ? sgn(r.d400) : "–"}<small class="cf-s">400張 週變化</small></td>
         <td>${r ? `${r.su400}｜${r.su1000} 週` : "–"}<small class="cf-s">大戶連增</small></td>
         <td class="l cf-msg" title="${esc(x.loc + "｜" + x.msg)}">${esc(x.loc)}<small>${esc(x.msg)}</small></td>
@@ -540,6 +552,12 @@
       openDetail(code);
     });
     $("#showMore").addEventListener("click", () => { limit += PAGE; render(); });
+    $("#mSort")?.addEventListener("change", (e) => {
+      const k = e.target.value; sort = { key: k, dir: k === "code" ? 1 : -1 }; render();
+    });
+    $("#mDir")?.addEventListener("click", () => {
+      const cur = sort || defaultSort[tab]; sort = { key: cur.key, dir: -cur.dir }; render();
+    });
     $("#themeBtn").addEventListener("click", () => { const p = $("#themePanel"); p.hidden = !p.hidden; render(); });
     $("#themePanel").addEventListener("click", (e) => {
       const chip = e.target.closest(".tchip"); if (chip) return toggleTheme(chip.dataset.k);
