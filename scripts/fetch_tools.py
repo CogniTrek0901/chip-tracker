@@ -25,6 +25,10 @@ from common import DATA_DIR, META_DIR, SITE_DATA, is_stock_code, load_json, save
 
 TZ = dt.timezone(dt.timedelta(hours=8))
 UA = {"User-Agent": "Mozilla/5.0 (CogniTrek; tools)"}
+# 期交所網站下載檔要像一般瀏覽器
+TFX_HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+           "Referer": "https://www.taifex.com.tw/cht/3/futContractsDate", "Origin": "https://www.taifex.com.tw",
+           "Content-Type": "application/x-www-form-urlencoded"}
 TW = "https://www.twse.com.tw"
 TF = "https://openapi.taifex.com.tw/v1"
 CACHE = DATA_DIR / "tools"
@@ -127,7 +131,7 @@ def tx_close(want: str | None = None):
     if want and (not tx or tx["d"] != want):
         try:
             d = f"{want[:4]}/{want[4:6]}/{want[6:]}"
-            r = requests.post("https://www.taifex.com.tw/cht/3/futDataDown", headers=UA, timeout=60,
+            r = requests.post("https://www.taifex.com.tw/cht/3/futDataDown", headers=TFX_HDR, timeout=60,
                               data={"down_type": "1", "commodity_id": "TX", "commodity_id2": "", "queryStartDate": d, "queryEndDate": d})
             text = r.content.decode("big5", errors="ignore")
             rs = []
@@ -139,6 +143,8 @@ def tx_close(want: str | None = None):
             alt = pick(rs)
             if alt and alt["d"] == want:
                 tx = alt
+            elif not rs:
+                print(f"  ! 期交所下載檔（台指期）沒有資料：{r.status_code} {text[:80]!r}", file=sys.stderr)
         except Exception as e:
             print(f"  ! 期交所下載檔（台指期）失敗：{str(e)[:80]}", file=sys.stderr)
     return tx, rows
@@ -304,7 +310,8 @@ def cpi_series() -> dict:
     if cache and cache.get("_u", "")[:6] == NOW.strftime("%Y%m"):
         return cache
     try:
-        r = requests.get("https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230555/pr0101a1m.xml", headers=UA, timeout=60)
+        r = requests.get("https://ws.dgbas.gov.tw/001/Upload/461/relfile/11525/230555/pr0101a1m.xml", headers=TFX_HDR, timeout=60)
+        print(f"  CPI 下載：{r.status_code}，{len(r.content)} bytes，開頭 {r.content[:120]!r}")
         root = ET.fromstring(r.content)
         out = {}
         for el in root.iter():
@@ -314,6 +321,9 @@ def cpi_series() -> dict:
                 m = re.match(r"(\d{4})M?-?(\d{1,2})", per)
                 if m and num(val):
                     out[f"{m.group(1)}{int(m.group(2)):02d}"] = num(val)
+        if len(out) <= 100:
+            sample = [[c.tag.split("}")[-1] + "=" + (c.text or "")[:20] for c in el] for el in list(root.iter())[:6]]
+            print(f"  CPI 結構：{sample}")
         if len(out) > 100:
             out["_u"] = NOW.strftime("%Y%m%d")
             save_json(path, out, compact=True)
@@ -417,9 +427,11 @@ def do_flow(mg: dict, tx: dict):
         try:
             end = NOW.date()
             st = end - dt.timedelta(days=14)
-            r = requests.post("https://www.taifex.com.tw/cht/3/futContractsDateDown", headers=UA, timeout=60, data={
+            r = requests.post("https://www.taifex.com.tw/cht/3/futContractsDateDown", headers=TFX_HDR, timeout=60, data={
                 "queryStartDate": st.strftime("%Y/%m/%d"), "queryEndDate": end.strftime("%Y/%m/%d"), "commodityId": "TXF"})
             text = r.content.decode("big5", errors="ignore")
+            if "臺股期貨" not in text:
+                print(f"  ! 期交所三大法人下載檔沒有資料：{r.status_code} {text[:80]!r}", file=sys.stderr)
             for line in text.splitlines()[1:]:
                 c = [x.strip() for x in line.split(",")]
                 if len(c) < 15 or "臺股期貨" not in c[1]:
