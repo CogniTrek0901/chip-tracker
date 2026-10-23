@@ -15,10 +15,20 @@
 
   async function getJSON(u) { const r = await fetch(u, { cache: "no-cache" }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }
 
-  document.addEventListener("ct:tab", (e) => { if (e.detail === "hot") show(); });
+  let onHot = false;
+  document.addEventListener("ct:tab", (e) => { onHot = e.detail === "hot"; if (onHot) show(); });
+  document.addEventListener("ct:auth", () => { if (onHot) show(); });
 
   async function show() {
     const v = $("#hotView");
+    // 登入後解鎖
+    const A = window.CTAuth;
+    if (!A) { v.innerHTML = '<p class="hint">確認登入狀態中…</p>'; return; }
+    if (!A.user) {
+      v.innerHTML = window.CTLock ? window.CTLock("強勢族群・登入後解鎖", "每日漲停與漲幅 ≥ 8% 個股、所屬族群、近期新聞與月營收圖表，登入會員即可查看。")
+        : '<div class="lock lock-mid"><h3>強勢族群・登入後解鎖</h3><div class="lock-act"><button class="primary" data-a2="login">登入</button></div></div>';
+      return;
+    }
     if (!IDX) {
       v.innerHTML = '<p class="hint">載入中…</p>';
       try { IDX = await getJSON("data/daily/index.json"); } catch { IDX = { dates: [] }; }
