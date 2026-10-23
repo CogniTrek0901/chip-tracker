@@ -32,6 +32,7 @@ OUT = SITE_DATA / "tools"
 NOW = dt.datetime.now(TZ)
 START = time.time()
 BUDGET = float(os.environ.get("TOOLS_BUDGET_MIN", "12")) * 60
+PX_CACHE: dict = {}  # 月底股價（融資維持率抓過就給席勒本益比沿用）
 TECH = {"半導體業", "電子零組件業", "光電業", "電腦及週邊設備業", "通信網路業", "電子通路業", "資訊服務業", "其他電子業"}
 
 
@@ -77,7 +78,8 @@ def taifex(path: str):
 # 1. 富台指換算台指期
 # ======================================================================
 def sgx_ft():
-    """SGX FTSE Taiwan 指數期貨近月（交易所網站延遲報價）。回傳 (last, ref, symbol, 時間)。"""
+    """SGX FTSE Taiwan 指數期貨（交易所網站延遲報價）。
+    ref＝前一個日盤結算價（preliminary-settlement），其日期＝base-date 的前一個工作日。"""
     url = "https://api.sgx.com/derivatives/v1.0/contract-code/TWN"
     params = {"order": "asc", "orderby": "delivery-month", "category": "futures", "session": "-1",
               "t": int(time.time() * 1000), "showTAICTrades": "false"}
@@ -90,43 +92,76 @@ def sgx_ft():
                 return None
             x = max(rows, key=lambda r: r.get("total-volume") or 0)  # 成交量最大＝主力合約
             last = float(x["last-traded-price-adj"])
-            chg = float(x.get("change-abs") or 0)
-            ts = x.get("updated-time")
-            t = dt.datetime.fromtimestamp(ts / 1000, TZ) if ts else NOW
-            return {"last": last, "ref": round(last - chg, 2), "chg": chg, "sym": x.get("symbol", ""), "t": t.strftime("%Y-%m-%d %H:%M")}
+            ref = x.get("preliminary-settlement-price-abs")
+            ref = float(ref) if ref not in (None, "", "-") else last - float(x.get("change-adj") or 0)
+            base = str(x.get("base-date") or NOW.strftime("%Y%m%d"))
+            bd = dt.datetime.strptime(base, "%Y%m%d").date() - dt.timedelta(days=1)
+            while bd.weekday() >= 5:
+                bd -= dt.timedelta(days=1)
+            t = str(x.get("last-update-time") or "")[:16]
+            if not t:
+                ts = x.get("updated-time")
+                t = (dt.datetime.fromtimestamp(ts / 1000, TZ) if ts else NOW).strftime("%Y-%m-%d %H:%M")
+            return {"last": last, "ref": round(ref, 2), "chg": round(last - ref, 2), "sym": x.get("symbol", ""),
+                    "t": t, "refDate": bd.strftime("%Y%m%d"), "base": base}
         except Exception as e:
             print(f"  ! SGX 富台指失敗：{str(e)[:80]}", file=sys.stderr)
             time.sleep(5)
     return None
 
 
-def tx_close():
-    """台指期近月一般盤收盤（期交所 OpenAPI）。"""
+def tx_close(want: str | None = None):
+    """台指期近月一般盤收盤：先用期交所 OpenAPI，日期不符再用期交所下載檔（futDataDown）。"""
     rows = taifex("/DailyMarketReportFut")
-    tx = [r for r in rows if r.get("Contract") == "TX" and r.get("TradingSession") == "一般"
-          and "/" not in r.get("ContractMonth(Week)", "") and num(r.get("Last"))]
-    if not tx:
-        return None, rows
-    tx.sort(key=lambda r: r["ContractMonth(Week)"])
-    r = tx[0]
-    return {"d": r["Date"], "close": num(r["Last"]), "settle": num(r.get("SettlementPrice")), "m": r["ContractMonth(Week)"]}, rows
+
+    def pick(rs):
+        tx = [r for r in rs if r.get("Contract") == "TX" and r.get("TradingSession") == "一般"
+              and "/" not in r.get("ContractMonth(Week)", "") and num(r.get("Last"))]
+        if not tx:
+            return None
+        tx.sort(key=lambda r: r["ContractMonth(Week)"])
+        r = tx[0]
+        return {"d": r["Date"], "close": num(r["Last"]), "settle": num(r.get("SettlementPrice")), "m": r["ContractMonth(Week)"].strip()}
+
+    tx = pick(rows)
+    if want and (not tx or tx["d"] != want):
+        try:
+            d = f"{want[:4]}/{want[4:6]}/{want[6:]}"
+            r = requests.post("https://www.taifex.com.tw/cht/3/futDataDown", headers=UA, timeout=60,
+                              data={"down_type": "1", "commodity_id": "TX", "commodity_id2": "", "queryStartDate": d, "queryEndDate": d})
+            text = r.content.decode("big5", errors="ignore")
+            rs = []
+            for line in text.splitlines()[1:]:
+                c = [v.strip() for v in line.split(",")]
+                if len(c) >= 18:
+                    rs.append({"Date": c[0].replace("/", ""), "Contract": c[1], "ContractMonth(Week)": c[2], "Last": c[6],
+                               "SettlementPrice": c[10], "TradingSession": c[17]})
+            alt = pick(rs)
+            if alt and alt["d"] == want:
+                tx = alt
+        except Exception as e:
+            print(f"  ! 期交所下載檔（台指期）失敗：{str(e)[:80]}", file=sys.stderr)
+    return tx, rows
 
 
 def do_ft():
     """回傳期交所當日期貨行情（後面的期貨警示共用）。"""
     ft = sgx_ft()
-    tx, fut_rows = tx_close()
+    tx, fut_rows = tx_close(ft["refDate"] if ft else None)
     path = OUT / "ft.json"
     old = load_json(path, {}) or {}
     if not ft or not tx:
         print("富台指或台指期資料取得失敗，保留舊資料")
+        return fut_rows
+    if tx["d"] != ft["refDate"]:
+        print(f"台指期收盤日期 {tx['d']} 與富台指基準日 {ft['refDate']} 不一致，暫不更新換算")
         return fut_rows
     est = round(tx["close"] * ft["last"] / ft["ref"])
     snap = {"t": ft["t"], "ft": ft["last"], "est": est}
     hist = [h for h in old.get("hist", []) if h.get("t") != snap["t"]] + [snap]
     save_json(path, {"updated": stamp(), "ft": ft, "tx": tx, "est": est, "chg": round(est - tx["close"]),
                      "pct": round((est / tx["close"] - 1) * 100, 2), "hist": hist[-30:]}, compact=True)
-    print(f"富台指 {ft['last']}（基準 {ft['ref']}）→ 台指期預估 {est}（基準 TX {tx['close']} @{tx['d']}）")
+    print(f"富台指 {ft['last']}（基準 {ft['ref']} @{ft['refDate']}）→ 台指期預估 {est}（基準 TX {tx['close']} @{tx['d']}）")
     return fut_rows
 
 
@@ -195,22 +230,33 @@ def do_margin(tx: dict, today_px: dict) -> dict:
     """data/tools/margin.json：{日期: [融資金額億, 融資市值億, 維持率%, 融資張, 融券張]}。"""
     path = CACHE / "margin.json"
     mg = load_json(path, {}) or {}
-    days = sorted(tx, reverse=True)
+    alld = sorted(tx, reverse=True)
+    # 近 400 天逐日；更早的只取每週最後一個交易日與月底（10 年約 700 天，避免對證交所請求過多）
+    recent = (NOW - dt.timedelta(days=400)).strftime("%Y%m%d")
+    wk, mo = {}, {}
+    for d in sorted(tx):
+        y, w, _ = dt.date(int(d[:4]), int(d[4:6]), int(d[6:])).isocalendar()
+        wk[(y, w)] = d
+        mo[d[:6]] = d
+    keep = set(wk.values()) | set(mo.values())
+    days = [d for d in alld if d >= recent or d in keep]
     done = 0
     for d in days:
-        if d in mg and d not in days[:2]:
+        if d in mg and d not in alld[:2]:
             continue
         if d > NOW.strftime("%Y%m%d"):
             continue
-        if time.time() - START > BUDGET:
+        if time.time() - START > BUDGET * 0.6:
             print(f"已達時間上限，其餘下次補（尚缺 {sum(1 for x in days if x not in mg)} 天）")
             break
-        px = today_px if (d == days[0] and today_px) else day_prices(d)
-        time.sleep(1.2)
+        px = today_px if (d == alld[0] and today_px) else day_prices(d)
+        time.sleep(0.8)
         if not px:
             continue
+        if d in mo.values():
+            PX_CACHE[d] = px
         v = day_margin(d, px)
-        time.sleep(1.2)
+        time.sleep(0.8)
         if v:
             mg[d] = v
             done += 1
@@ -219,7 +265,7 @@ def do_margin(tx: dict, today_px: dict) -> dict:
                 print(f"  融資維持率已補 {done} 天（最新 {d}）")
     save_json(path, dict(sorted(mg.items())), compact=True)
     cut = (NOW - dt.timedelta(days=3660)).strftime("%Y%m%d")
-    rows = [[d, tx.get(d)] + v[:3] for d, v in sorted(mg.items()) if d >= cut]
+    rows = [[d, tx.get(d)] + v[:3] for d, v in sorted(mg.items()) if d >= cut and tx.get(d)]
     save_json(OUT / "margin.json", {"updated": stamp(), "f": ["日期", "加權指數", "融資餘額(億)", "融資市值(億)", "維持率%"], "d": rows}, compact=True)
     print(f"融資維持率：共 {len(mg)} 天，本次新增 {done} 天")
     return mg
@@ -230,10 +276,10 @@ def do_margin(tx: dict, today_px: dict) -> dict:
 # ======================================================================
 def month_pe(d: str) -> list | None:
     """月底：上市普通股總市值與總盈餘（市值/本益比），回傳 [市值億, 盈餘億]。"""
-    px = day_prices(d)
-    time.sleep(1.2)
+    px = PX_CACHE.get(d) or day_prices(d)
+    time.sleep(0.8)
     j = twse("/rwd/zh/fund/MI_QFIIS", date=d, selectType="ALLBUT0999")
-    time.sleep(1.2)
+    time.sleep(0.8)
     rows = j.get("data") or ((j.get("tables") or [{}])[0].get("data")) or []
     if not px or not rows:
         return None
@@ -313,7 +359,7 @@ def do_cape(tx: dict):
             continue
         if ym in pm and ym == cur and pm[ym][0] == d:
             continue
-        if time.time() - START > BUDGET + 600:
+        if time.time() - START > BUDGET * 0.95:
             print("席勒本益比：已達時間上限，其餘下次補")
             break
         v = month_pe(d)
