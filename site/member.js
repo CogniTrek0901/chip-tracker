@@ -233,6 +233,9 @@ async function refresh() {
   profile = null;
   if (user) { try { const s = await getDoc(doc(db, "users", user.uid)); profile = s.exists() ? s.data() : null; } catch { profile = null; } }
   renderAcct();
+  // 讓其他模組（強勢族群、小功能）知道登入狀態
+  window.CTAuth = { user, profile };
+  document.dispatchEvent(new CustomEvent("ct:auth"));
   if (curTab) render(curTab);
 }
 
