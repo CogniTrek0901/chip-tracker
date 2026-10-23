@@ -1,0 +1,71 @@
+name: 小功能資料
+
+on:
+  schedule:
+    # 台北時間：17:07、00:07、05:37 只更新富台指換算；21:47、08:17 全部更新（融資、期貨、席勒本益比）
+    - cron: "7 9 * * 1-5"
+    - cron: "7 16 * * 1-5"
+    - cron: "37 21 * * 1-5"
+    - cron: "47 13 * * 1-5"
+    - cron: "17 0 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "all＝全部、ft＝只更新富台指"
+        required: false
+        default: "all"
+      budget:
+        description: "補歷史資料最多幾分鐘（第一次補 10 年請填 300）"
+        required: false
+        default: "15"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: tools
+  cancel-in-progress: false
+
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: 抓取小功能資料
+        run: |
+          MODE="${{ inputs.mode }}"
+          if [ -z "$MODE" ]; then
+            case "${{ github.event.schedule }}" in
+              "47 13 * * 1-5"|"17 0 * * 1-5") MODE=all ;;
+              *) MODE=ft ;;
+            esac
+          fi
+          echo "mode=$MODE"
+          python -u scripts/fetch_tools.py "$MODE"
+        env:
+          TOOLS_BUDGET_MIN: ${{ inputs.budget || '15' }}
+        continue-on-error: true
+      - name: 提交資料
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/tools site/data/tools
+          git diff --cached --quiet && exit 0
+          git commit -m "小功能資料 $(date -u +%F_%H%M)"
+          for i in 1 2 3; do git pull --rebase -X theirs origin main && git push && break; sleep 10; done
+      - name: 加上版本號避免瀏覽器快取舊檔
+        run: sed -i -E "s#(src|href)=\"([a-z]+\.(js|css))\"#\1=\"\2?v=${GITHUB_SHA::7}\"#g" site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        continue-on-error: true
