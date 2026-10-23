@@ -197,12 +197,13 @@
     }
     renderThemeBar();
     const cn = $('[data-count="conf"]'); if (cn) cn.textContent = confList(c).filter((x) => !x.past).length;
-    const isMember = tab === "board" || tab === "admin" || tab === "hot";
+    const isMember = tab === "board" || tab === "admin" || tab === "hot" || tab === "tools";
     document.body.dataset.tab = tab;
     $(".panel").hidden = isMember;
     $("#boardView").hidden = tab !== "board";
     $("#adminView").hidden = tab !== "admin";
     $("#hotView").hidden = tab !== "hot";
+    $("#toolsView").hidden = tab !== "tools";
     if (isMember) {
       ["#tableWrap", "#themeView", "#treeView", "#confView", "#more"].forEach((s) => ($(s).hidden = true));
       document.dispatchEvent(new CustomEvent("ct:tab", { detail: tab }));
