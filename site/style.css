@@ -744,3 +744,83 @@ table.alert-tbl tr[data-rev] { cursor: pointer; }
   table.alert-tbl td:first-child { white-space: normal; min-width: 76px; }
   table.tl-tbl td small { white-space: nowrap; }
 }
+
+/* ======================================================================
+   小功能改版（2026.10.26）：亞當理論、個股融資維持率
+   ====================================================================== */
+/* 個股融資維持率 */
+.sm-box { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.sm-head h3 { margin: 0 0 8px; font-size: 17px; }
+.sm-head h3 small { margin-left: 8px; font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.sm-ctl { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.sm-ctl input[type=search] { width: 240px; max-width: 100%; }
+.sm-chk { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
+.sm-legend { margin-top: 8px; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.rt { display: inline-block; min-width: 58px; text-align: center; padding: 1px 7px; border-radius: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rt.r1 { background: #b71c1c; color: #fff; }
+.rt.r2 { background: #e53935; color: #fff; }
+.rt.r3 { background: #fbe3c5; color: #8a4b00; }
+.rt.r4 { background: var(--chip); color: var(--muted); }
+.sm-cnt { margin: 0; font-size: 13.5px; color: var(--muted); }
+table.sm-tbl .g { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--tiff-soft); color: var(--tiff-ink); }
+table.sm-tbl tr[data-rev] { cursor: pointer; }
+table.sm-tbl tr.sm-g td { background: var(--tiff-soft); color: var(--tiff-ink); font-weight: 700; text-align: left; font-size: 13.5px; }
+table.sm-tbl tr.sm-g small { margin-left: 8px; font-weight: 400; display: inline; }
+
+/* 亞當理論 */
+.adam { display: flex; flex-direction: column; gap: 14px; }
+.adam-top { display: grid; grid-template-columns: minmax(260px, 1fr) 1.4fr; gap: 14px; align-items: stretch; }
+.adam-search { display: flex; gap: 8px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); }
+.adam-search input { flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px; font-size: 15px; }
+.adam-search .primary { padding: 9px 16px; border-radius: 10px; }
+.adam-intro { background: var(--tiff-soft); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+.adam-main { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.adam-panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.adam-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.adam-h h4 { margin: 0; font-size: 15px; }
+.adam-h .hint { font-size: 12.5px; }
+.adam-tip { margin: 0; font-size: 12.5px; color: var(--muted); }
+.adam-chart { position: relative; touch-action: none; }
+.adam-chart svg { display: block; border: 1px solid var(--line); border-radius: 10px; background: var(--card); user-select: none; }
+.adam-chart .gl { stroke: var(--line); }
+.adam-chart .ax { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.adam-chart .hit { fill: transparent; cursor: crosshair; }
+.adam-chart .sel { fill: rgba(10, 158, 153, .12); stroke: var(--tiff-deep); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.adam-chart .cur, .adam-chart .curh { stroke: var(--ink); stroke-width: 1; opacity: .7; pointer-events: none; }
+.adam-chart .curh { stroke-dasharray: 3 3; opacity: .5; }
+.cd line { stroke-width: 1; }
+.cd.u line, .cd.u rect { stroke: var(--up); fill: var(--up); }
+.cd.d line, .cd.d rect { stroke: var(--down); fill: var(--down); }
+.cd.pj.u rect { fill: color-mix(in srgb, #8e44ad 25%, transparent); stroke: #8e44ad; }
+.cd.pj.d rect { fill: #8e44ad; stroke: #8e44ad; }
+.cd.pj line { stroke: #8e44ad; }
+.adam-chart .pj-bg { fill: color-mix(in srgb, #8e44ad 6%, transparent); }
+.adam-chart .jn { stroke: #8e44ad; stroke-dasharray: 4 3; }
+.adam-chart .ref { stroke: var(--muted); stroke-dasharray: 2 4; }
+.adam-tt { top: 8px; }
+.adam-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.adam-btns button { padding: 8px 12px; border-radius: 10px; font-size: 14px; cursor: pointer; }
+.adam-btns button.done { background: var(--tiff-deep); color: #fff; border-color: var(--tiff-deep); }
+.adam-btns button:disabled { opacity: .45; cursor: not-allowed; }
+.adam-btns .sm { margin-left: auto; }
+.adam-tray { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.adam-tray .hint { font-size: 13px; }
+.adam-piece { flex: 1 1 260px; border: 1px dashed #8e44ad; border-radius: 10px; padding: 6px 8px; background: color-mix(in srgb, #8e44ad 4%, var(--card)); cursor: grab; touch-action: none; user-select: none; }
+.adam-piece svg { display: block; }
+.adam-piece-h { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.adam-piece-h b { color: var(--ink); }
+.adam-grip { margin-left: auto; color: #8e44ad; }
+.adam-piece.ghost-drag { position: fixed; z-index: 1000; pointer-events: none; opacity: .85; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.adam-dockbtn { padding: 9px 14px; border-radius: 10px; }
+.adam-dock.over { outline: 3px dashed #8e44ad; outline-offset: 2px; }
+.adam-drop { border: 2px dashed var(--line); border-radius: 10px; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--muted); padding: 16px; }
+.adam-drop p { margin: 4px 0; }
+@media (max-width: 900px) {
+  .adam-top, .adam-main { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  table.sm-tbl td:first-child, table.sm-tbl th:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; box-shadow: 1px 0 0 var(--line); white-space: normal; min-width: 84px; }
+  table.sm-tbl tr.sm-g td:first-child { background: var(--tiff-soft); }
+  .sm-ctl input[type=search] { width: 100%; }
+  .adam-btns .sm { margin-left: 0; }
+}
