@@ -214,7 +214,7 @@
   }
   function smList(gm) {
     const q = smState.q;
-    let rows = (SM.rows || []).map((r) => ({ c: r[0], n: r[1], m: r[2], i: r[3], cl: r[4], avg: r[5], ratio: r[6], bal: r[7], chg: r[8], g: gm.get(r[0]) || r[3] || "其他" }));
+    let rows = (SM.rows || []).filter((r) => r[6] >= 90 && r[6] <= 500).map((r) => ({ c: r[0], n: r[1], m: r[2], i: r[3], cl: r[4], avg: r[5], ratio: r[6], bal: r[7], chg: r[8], g: gm.get(r[0]) || r[3] || "其他" }));
     rows = q ? rows.filter((r) => r.c.includes(q) || r.n.includes(q)) : rows.filter((r) => r.ratio < smState.th);
     const dir = smState.sort === "asc" ? 1 : -1;
     rows.sort((a, b) => (a.ratio - b.ratio) * dir);
