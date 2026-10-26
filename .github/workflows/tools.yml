@@ -38,7 +38,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: 抓取小功能資料
+      - name: 判斷模式
         run: |
           MODE="${{ inputs.mode }}"
           if [ -z "$MODE" ]; then
@@ -47,8 +47,14 @@ jobs:
               *) MODE=ft ;;
             esac
           fi
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
           echo "mode=$MODE"
-          python -u scripts/fetch_tools.py "$MODE"
+      - name: K 線（亞當理論）
+        if: env.MODE == 'all'
+        run: python -u scripts/fetch_kline.py
+        continue-on-error: true
+      - name: 抓取小功能資料
+        run: python -u scripts/fetch_tools.py "$MODE"
         env:
           TOOLS_BUDGET_MIN: ${{ inputs.budget || '15' }}
         continue-on-error: true
@@ -57,7 +63,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/tools site/data/tools
+          git add data/tools site/data/tools site/data/k
           git diff --cached --quiet && exit 0
           git commit -m "小功能資料 $(date -u +%F_%H%M)"
           for i in 1 2 3; do git pull --rebase -X theirs origin main && git push && break; sleep 10; done
