@@ -12,7 +12,7 @@
     get(k, d) { try { return localStorage.getItem("ct:tools:" + k) ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem("ct:tools:" + k, v); } catch { /* ignore */ } },
   };
-  const TABS = [["ft", "富台指換算"], ["margin", "融資維持率"], ["cape", "席勒本益比"], ["flow", "融資／外資"], ["alert", "期貨警示"]];
+  const TABS = [["ft", "富台指換算"], ["margin", "融資維持率"], ["cape", "席勒本益比"], ["flow", "融資／外資"], ["alert", "期貨警示"], ["adam", "亞當理論"]];
   let cur = store.get("sub", "ft"), onTab = false;
   const cache = {};
   async function getJSON(name) {
@@ -51,6 +51,7 @@
       else if (cur === "cape") drawCape(b, await getJSON("cape"));
       else if (cur === "flow") b.innerHTML = flowHtml(await getJSON("flow"));
       else if (cur === "alert") b.innerHTML = alertHtml(await getJSON("futalert"));
+      else if (cur === "adam") { if (window.CTAdam) window.CTAdam.render(b); else b.innerHTML = '<p class="hint">載入中…</p>'; }
     } catch (e) {
       b.innerHTML = `<div class="lock"><h3>資料準備中</h3><p>這項資料會在下一次自動更新後出現（${esc(e.message)}）。</p></div>`;
     }
@@ -166,6 +167,8 @@
       <div id="tlChart"></div>
       <p class="hint">融資維持率 ＝ 上市股票融資餘額的市值 ÷ 融資金額（本站以每日收盤價估算，與券商公布值可能略有差異）。
         個人維持率低於 130% 會被追繳，大盤維持率跌近 140%～150% 時常伴隨斷頭賣壓。資料：證交所，共 ${fmt(total)} 個交易日${total < 2000 ? "（10 年歷史資料陸續補齊中）" : ""}；更新於 ${esc(d.updated)}。</p>`;
+    b.insertAdjacentHTML("beforeend", '<div id="smBox" class="sm-box"><p class="hint">個股融資維持率載入中…</p></div>');
+    drawStockMargin();
     if (rows.length < 2) { $("#tlChart").innerHTML = '<p class="empty">資料累積中。</p>'; return; }
     chart($("#tlChart"), {
       x: rows.map((x) => x[0]),
@@ -176,6 +179,59 @@
       xLab: ymd,
       tip: (i) => { const x = rows[i]; return `<b>${ymd(x[0])}</b><span>維持率</span><em>${fmt(x[4], 2)}%</em><span>融資餘額</span><em>${fmt(x[2], 0)} 億</em><span>加權指數</span><em>${fmt(x[1], 0)}</em>`; },
     });
+  }
+
+  // ---------------- 2b. 個股融資維持率 ----------------
+  let SM = null, GRP = null;
+  const smState = { q: "", sort: store.get("smSort", "asc"), group: store.get("smGroup", "0") === "1", th: 150 };
+  async function groupMap() {
+    if (GRP) return GRP;
+    GRP = new Map();
+    try {
+      const t = await (await fetch("data/themes.json", { cache: "no-cache" })).json();
+      for (const ch of t.chains || []) for (const st of ch.stages || []) for (const sg of st.segments || []) for (const c of sg.codes || []) if (!GRP.has(c)) GRP.set(c, sg.name);
+    } catch { /* ignore */ }
+    return GRP;
+  }
+  async function drawStockMargin() {
+    const box = $("#smBox"); if (!box) return;
+    try { SM = SM || (await getJSON("stock_margin")); } catch { box.innerHTML = '<div class="lock"><h3>個股融資維持率準備中</h3><p>下一次每日更新（約晚上 9:50）後就會出現。</p></div>'; return; }
+    const gm = await groupMap();
+    box.innerHTML = `<div class="sm-head"><h3>個股融資維持率（估算）<small>維持率低於 150% 的上市櫃個股</small></h3>
+        <div class="sm-ctl">
+          <input id="smQ" type="search" placeholder="搜尋代號或名稱（可查任一檔）" value="${esc(smState.q)}">
+          <select id="smSort"><option value="asc" ${smState.sort === "asc" ? "selected" : ""}>維持率 小 → 大</option><option value="desc" ${smState.sort === "desc" ? "selected" : ""}>維持率 大 → 小</option></select>
+          <label class="sm-chk"><input type="checkbox" id="smGroup" ${smState.group ? "checked" : ""}> 同族群放一起</label>
+        </div>
+        <div class="sm-legend"><span class="rt r1">&lt; 130%</span> 已達追繳 <span class="rt r2">130～140%</span> 接近追繳 <span class="rt r3">140～150%</span> 偏低</div></div>
+      <div id="smList"></div>
+      <p class="hint">估算方式：每天以融資買進張數 × 當日均價累計「融資平均成本」，維持率 ＝ 收盤價 ÷（平均成本 × 融資成數）。融資成數以上市 60%、上櫃 50% 計，
+        實際依券商與個股成數不同會有差異，僅供參考。上市資料至 ${SM.d ? `${SM.d.slice(4, 6)}/${SM.d.slice(6)}` : "–"}${SM.od ? `、上櫃至 ${SM.od.slice(4, 6)}/${SM.od.slice(6)}` : "（上櫃資料暫缺）"}；更新於 ${esc(SM.updated)}。</p>`;
+    const re = () => { smState.q = $("#smQ").value.trim(); smState.sort = $("#smSort").value; smState.group = $("#smGroup").checked;
+      store.set("smSort", smState.sort); store.set("smGroup", smState.group ? "1" : "0"); smList(gm); };
+    $("#smQ").addEventListener("input", re); $("#smSort").addEventListener("change", re); $("#smGroup").addEventListener("change", re);
+    smList(gm);
+  }
+  function smList(gm) {
+    const q = smState.q;
+    let rows = (SM.rows || []).map((r) => ({ c: r[0], n: r[1], m: r[2], i: r[3], cl: r[4], avg: r[5], ratio: r[6], bal: r[7], chg: r[8], g: gm.get(r[0]) || r[3] || "其他" }));
+    rows = q ? rows.filter((r) => r.c.includes(q) || r.n.includes(q)) : rows.filter((r) => r.ratio < smState.th);
+    const dir = smState.sort === "asc" ? 1 : -1;
+    rows.sort((a, b) => (a.ratio - b.ratio) * dir);
+    if (smState.group) {
+      const gs = new Map();
+      rows.forEach((r) => { if (!gs.has(r.g)) gs.set(r.g, []); gs.get(r.g).push(r); });
+      rows = [...gs.entries()].sort((a, b) => (a[1][0].ratio - b[1][0].ratio) * dir).flatMap(([g, rs]) => [{ hdr: g, n: rs.length }, ...rs]);
+    }
+    const cl = (v) => (v < 130 ? "r1" : v < 140 ? "r2" : v < 150 ? "r3" : "r4");
+    const cnt = rows.filter((r) => !r.hdr).length;
+    $("#smList").innerHTML = cnt ? `<p class="sm-cnt">${q ? `搜尋「${esc(q)}」：${cnt} 檔` : `共 ${cnt} 檔低於 150%（低於 140%：${rows.filter((r) => !r.hdr && r.ratio < 140).length} 檔）`}</p>
+      <div class="table-wrap"><table class="tl-tbl sm-tbl"><thead><tr><th class="l">股票</th><th class="l">族群</th><th>維持率</th><th>收盤</th><th>融資成本</th><th>融資餘額<small>(張)</small></th><th>增減<small>(張)</small></th></tr></thead><tbody>
+      ${rows.map((r) => r.hdr ? `<tr class="sm-g"><td colspan="7">${esc(r.hdr)}<small>${r.n} 檔</small></td></tr>` : `<tr data-rev="${r.c}" data-m="${esc(r.m)}">
+        <td class="l"><b>${r.c}</b> ${esc(r.n)}${r.m === "上櫃" ? '<span class="tag">櫃</span>' : ""}</td><td class="l"><span class="g">${esc(r.g)}</span></td>
+        <td><span class="rt ${cl(r.ratio)}">${fmt(r.ratio, 1)}%</span></td><td>${fmt(r.cl, r.cl < 100 ? 2 : 1)}</td><td>${fmt(r.avg, r.avg < 100 ? 2 : 1)}</td>
+        <td>${fmt(r.bal)}</td><td class="${cls(r.chg)}">${sg(r.chg)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">${q ? "找不到這檔，或它目前沒有融資餘額。" : "目前沒有維持率低於 150% 的個股。"}</p>`;
   }
 
   // ---------------- 3. 席勒本益比 ----------------
