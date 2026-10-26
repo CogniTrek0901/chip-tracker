@@ -520,6 +520,8 @@ def do_stock_margin(tx: dict):
             continue
         lend = 0.6 if mkt == "上市" else 0.5
         ratio = close / (avg * lend) * 100
+        if ratio < 90 or ratio > 500:  # 多半是減資、分割或新上市造成的估算失真，略過
+            continue
         rows.append([c, meta[c].get("n", ""), mkt, meta[c].get("i", ""), close, round(avg, 2), round(ratio, 1), bal, chg])
     rows.sort(key=lambda r: r[6])
     save_json(OUT / "stock_margin.json", {"updated": stamp(), "d": done_d, "od": otc_d,
