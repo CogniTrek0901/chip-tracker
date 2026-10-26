@@ -156,17 +156,30 @@ def do_ft():
     tx, fut_rows = tx_close(ft["refDate"] if ft else None)
     path = OUT / "ft.json"
     old = load_json(path, {}) or {}
+    settles = dict(old.get("settles") or {})
+    if old.get("ft", {}).get("refDate") and old["ft"].get("ref"):
+        settles.setdefault(old["ft"]["refDate"], old["ft"]["ref"])
+    if ft:
+        settles[ft["refDate"]] = ft["ref"]
+    settles = dict(sorted(settles.items())[-30:])
     if not ft or not tx:
         print("富台指或台指期資料取得失敗，保留舊資料")
         return fut_rows
     if tx["d"] != ft["refDate"]:
-        print(f"台指期收盤日期 {tx['d']} 與富台指基準日 {ft['refDate']} 不一致，暫不更新換算")
-        return fut_rows
+        # 台股休市但新加坡有開（或反過來）：改用台指期收盤當天的富台指結算價當基準
+        if tx["d"] in settles:
+            ft["ref"], ft["refDate"] = settles[tx["d"]], tx["d"]
+            ft["chg"] = round(ft["last"] - ft["ref"], 2)
+        else:
+            print(f"台指期收盤日期 {tx['d']} 與富台指基準日 {ft['refDate']} 不一致，暫不更新換算")
+            old["settles"] = settles
+            save_json(path, old, compact=True)
+            return fut_rows
     est = round(tx["close"] * ft["last"] / ft["ref"])
     snap = {"t": ft["t"], "ft": ft["last"], "est": est}
     hist = [h for h in old.get("hist", []) if h.get("t") != snap["t"]] + [snap]
     save_json(path, {"updated": stamp(), "ft": ft, "tx": tx, "est": est, "chg": round(est - tx["close"]),
-                     "pct": round((est / tx["close"] - 1) * 100, 2), "hist": hist[-30:]}, compact=True)
+                     "pct": round((est / tx["close"] - 1) * 100, 2), "hist": hist[-30:], "settles": settles}, compact=True)
     print(f"富台指 {ft['last']}（基準 {ft['ref']} @{ft['refDate']}）→ 台指期預估 {est}（基準 TX {tx['close']} @{tx['d']}）")
     return fut_rows
 
@@ -199,7 +212,7 @@ def trading_days(months: int) -> dict:
 
 
 def day_prices(d: str) -> dict:
-    """當日上市個股收盤價與本益比 {代號: (收盤, 本益比)}。"""
+    """當日上市個股 {代號: (收盤, 本益比, 均價)}。"""
     j = twse("/rwd/zh/afterTrading/MI_INDEX", date=d, type="ALLBUT0999")
     if j.get("stat") != "OK":
         return {}
@@ -208,7 +221,13 @@ def day_prices(d: str) -> dict:
         return {}
     f = t["fields"]
     ci, pi = f.index("收盤價"), (f.index("本益比") if "本益比" in f else None)
-    return {str(r[0]).strip(): (num(r[ci]), num(r[pi]) if pi is not None else None) for r in t["data"]}
+    vi, ai = (f.index("成交股數") if "成交股數" in f else None), (f.index("成交金額") if "成交金額" in f else None)
+    out = {}
+    for r in t["data"]:
+        c = num(r[ci])
+        v, a = (num(r[vi]) if vi is not None else None), (num(r[ai]) if ai is not None else None)
+        out[str(r[0]).strip()] = (c, num(r[pi]) if pi is not None else None, round(a / v, 3) if v and a else c)
+    return out
 
 
 def day_margin(d: str, px: dict):
@@ -245,7 +264,8 @@ def do_margin(tx: dict, today_px: dict) -> dict:
         wk[(y, w)] = d
         mo[d[:6]] = d
     keep = set(wk.values()) | set(mo.values())
-    days = [d for d in alld if d >= recent or d in keep]
+    ten = (NOW - dt.timedelta(days=3660)).strftime("%Y%m%d")
+    days = [d for d in alld if d >= recent or (d in keep and d >= ten)]
     done = 0
     for d in days:
         if d in mg and d not in alld[:2]:
@@ -295,7 +315,7 @@ def month_pe(d: str) -> list | None:
         if not is_stock_code(c):
             continue
         sh = num(r[3])
-        p, pe = px.get(c, (None, None))
+        p, pe = (px.get(c) or (None, None))[:2]
         if sh and p:
             cap += sh * p
             if pe and pe > 0:
@@ -405,6 +425,107 @@ def do_cape(tx: dict):
     out = [r for r in out if r[0] >= (NOW - dt.timedelta(days=3660)).strftime("%Y%m")]
     save_json(OUT / "cape.json", {"updated": stamp(), "real": real, "f": ["年月", "加權指數", "席勒本益比", "本益比"], "m": out}, compact=True)
     print(f"席勒本益比：月資料 {len(pm)} 個月，本次新增 {done}，輸出 {len(out)} 點（{'實質' if real else '名目'}）")
+
+
+# ======================================================================
+# 2b. 個股融資維持率（估算）
+# ======================================================================
+KCACHE: dict = {}
+
+
+def kline(code: str) -> list:
+    if code not in KCACHE:
+        KCACHE[code] = (load_json(SITE_DATA / "k" / f"{code}.json", {}) or {}).get("d") or []
+    return KCACHE[code]
+
+
+def init_avg(code: str, d: str, fallback):
+    """沒有歷史時：用該日以前 60 個交易日的平均收盤當融資成本。"""
+    cl = [r[4] for r in kline(code) if r[0] <= d][-60:]
+    return round(sum(cl) / len(cl), 3) if cl else fallback
+
+
+def tpex_margin():
+    """上櫃：櫃買中心 OpenAPI（只有最新一日）。回傳 (日期, {代號: [買進, 前日餘額, 今日餘額, 收盤, 均價]})。"""
+    base = "https://www.tpex.org.tw/openapi/v1/"
+    try:
+        m = requests.get(base + "tpex_mainboard_margin_balance", headers=TFX_HDR, timeout=40).json()
+        q = requests.get(base + "tpex_mainboard_daily_close_quotes", headers=TFX_HDR, timeout=40).json()
+    except Exception as e:
+        print(f"  ! 櫃買中心 OpenAPI 無法連線：{str(e)[:80]}", file=sys.stderr)
+        return None, {}
+    px = {x["SecuritiesCompanyCode"].strip(): (num(x.get("Close")), num(x.get("Average"))) for x in q}
+    out, day = {}, None
+    for x in m:
+        c = x["SecuritiesCompanyCode"].strip()
+        roc = str(x.get("Date", ""))
+        if len(roc) == 7:
+            day = f"{int(roc[:3]) + 1911}{roc[3:]}"
+        cl, av = px.get(c, (None, None))
+        out[c] = [num(x.get("MarginPurchase")), num(x.get("MarginPurchaseBalancePreviousDay")), num(x.get("MarginPurchaseBalance")), cl, av or cl]
+    return day, out
+
+
+def roll(S: dict, code: str, d: str, buy, prev, bal, close, vwap, mkt: str):
+    st = S.get(code)
+    if st is None:
+        if not close:
+            return
+        st = [prev or 0, init_avg(code, d, close), close, mkt]
+    b0, avg = st[0], st[1]
+    if buy and vwap and (b0 + buy) > 0:
+        avg = (b0 * avg + buy * vwap) / (b0 + buy)
+    if not bal:
+        avg = close or avg  # 融資清空：下次重新起算
+    S[code] = [int(bal or 0), round(avg, 3), close or st[2], mkt, int((bal or 0) - (prev or 0))]
+
+
+def do_stock_margin(tx: dict):
+    path = CACHE / "stock_margin_state.json"
+    st = load_json(path, {}) or {}
+    S, done_d, otc_d = st.get("s", {}), st.get("d", ""), st.get("od", "")
+    today = NOW.strftime("%Y%m%d")
+    recent = sorted(d for d in tx if d <= today and d >= (NOW - dt.timedelta(days=400)).strftime("%Y%m%d"))
+    todo = [d for d in recent if d > done_d] if done_d else recent[-120:]
+    n = 0
+    for d in todo:
+        if time.time() - START > BUDGET * 0.8:
+            print(f"個股融資：已達時間上限，處理到 {done_d}")
+            break
+        px = day_prices(d)
+        time.sleep(0.8)
+        j = twse("/rwd/zh/marginTrading/MI_MARGN", date=d, selectType="ALL")
+        time.sleep(0.8)
+        if not px or j.get("stat") != "OK" or len(j.get("tables", [])) < 2:
+            continue
+        for r in j["tables"][1].get("data", []):
+            c = str(r[0]).strip()
+            p = px.get(c)
+            if not p:
+                continue
+            roll(S, c, d, num(r[2]), num(r[5]), num(r[6]), p[0], p[2], "上市")
+        done_d = d
+        n += 1
+    # 上櫃（OpenAPI 只有最新一日，只能從今天往後累積）
+    od, om = tpex_margin()
+    if od and om and od > otc_d:
+        for c, (buy, prev, bal, cl, av) in om.items():
+            roll(S, c, od, buy, prev, bal, cl, av, "上櫃")
+        otc_d = od
+    save_json(path, {"d": done_d, "od": otc_d, "s": S}, compact=True)
+    meta = load_json(META_DIR / "stocks.json", {}) or {}
+    rows = []
+    for c, (bal, avg, close, mkt, chg) in S.items():
+        if not bal or not avg or not close or c not in meta:
+            continue
+        lend = 0.6 if mkt == "上市" else 0.5
+        ratio = close / (avg * lend) * 100
+        rows.append([c, meta[c].get("n", ""), mkt, meta[c].get("i", ""), close, round(avg, 2), round(ratio, 1), bal, chg])
+    rows.sort(key=lambda r: r[6])
+    save_json(OUT / "stock_margin.json", {"updated": stamp(), "d": done_d, "od": otc_d,
+                                          "f": ["代號", "名稱", "市場", "產業", "收盤", "融資成本", "維持率%", "融資餘額(張)", "增減(張)"],
+                                          "rows": rows}, compact=True)
+    print(f"個股融資維持率：上市處理到 {done_d}（本次 {n} 天）、上櫃 {otc_d or '無'}；共 {len(rows)} 檔，低於 150% 有 {sum(1 for r in rows if r[6] < 150)} 檔")
 
 
 # ======================================================================
@@ -540,7 +661,8 @@ def main() -> int:
     except Exception as e:
         print(f"  ! 融資維持率失敗：{e}", file=sys.stderr)
         mg = load_json(CACHE / "margin.json", {}) or {}
-    for step, fn in (("期貨警示", lambda: do_futalert(fut_rows or taifex("/DailyMarketReportFut"), today_px, last_day)),
+    for step, fn in (("個股融資維持率", lambda: do_stock_margin(tx)),
+                     ("期貨警示", lambda: do_futalert(fut_rows or taifex("/DailyMarketReportFut"), today_px, last_day)),
                      ("融資／外資", lambda: do_flow(mg, tx)),
                      ("席勒本益比", lambda: do_cape(tx))):
         try:
