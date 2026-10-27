@@ -9,6 +9,8 @@
     set(k, v) { try { localStorage.setItem("ct:adam:" + k, v); } catch { /* ignore */ } },
   };
   const SPAN = [["60", "3月"], ["125", "6月"], ["260", "1年"]];
+  const MAS = [[5, "#f39c12"], [10, "#2980b9"], [20, "#e84393"], [120, "#16a085"], [240, "#8d6e63"]];
+  let maOn = new Set(String(store.get("ma", "5,10,20,120,240")).split(",").filter(Boolean).map(Number));
 
   // 狀態
   let root = null, K = null, code = store.get("code", "2330"), span = +store.get("span", "125");
@@ -41,6 +43,7 @@
         <section class="adam-panel">
           <div class="adam-h"><h4 id="adamTitle">K 線圖</h4><div class="seg">${SPAN.map(([k, t]) => `<button data-span="${k}" class="${+k === span ? "on" : ""}">${t}</button>`).join("")}</div></div>
           <p class="adam-tip">在圖上<b>拖曳</b>選取範圍；拖曳範圍中間可左右移動，拖曳邊緣可調整長短。</p>
+          <div class="adam-ma" id="adamMa"></div>
           <div class="adam-chart" id="adamChart"><p class="hint">載入中…</p></div>
           <div class="adam-btns">
             <button data-act="cap" class="ghost">① 擷取範圍</button>
@@ -55,7 +58,7 @@
           <div class="adam-chart" id="adamDockChart"></div>
         </section>
       </div>
-      <p class="hint">K 線資料：Yahoo 財經日線（近一年，每個交易日晚上更新）。翻轉規則：左右翻轉＝K 棒順序倒過來、開收盤互換；上下翻轉＝以擷取區最後一天的收盤價為中心，把價格鏡像。對接時把第一根接在最新收盤價。</p>
+      <p class="hint">K 線資料：Yahoo 財經日線（近兩年，每個交易日晚上更新）；均線以收盤價計算，點圖上方的均線按鈕可開關。翻轉規則：左右翻轉＝K 棒順序倒過來、開收盤互換；上下翻轉＝以擷取區最後一天的收盤價為中心，把價格鏡像。對接時把第一根接在最新收盤價。</p>
     </div>`;
     el.querySelector("#adamForm").addEventListener("submit", (e) => {
       e.preventDefault();
@@ -79,6 +82,7 @@
       if (!r.ok) throw new Error(r.status === 404 ? "這檔還沒有 K 線資料（每天晚上補齊）" : "HTTP " + r.status);
       const j = await r.json();
       K = j.d.map(([d, o, h, l, cl, v]) => ({ d, o, h, l, c: cl, v }));
+      calcMA();
       root.querySelector("#adamTitle").innerHTML = `K 線圖 · <b>${esc(j.c)}</b> ${esc(j.n)}`;
       root.querySelector("#adamQ").value = `${j.c} ${j.n}`;
     } catch (e) {
@@ -91,6 +95,50 @@
   }
 
   function view() { return K ? K.slice(-span) : []; }
+
+  // ---------------- 均線 ----------------
+  function calcMA() {
+    for (const [n] of MAS) {
+      let sum = 0;
+      K.forEach((b, i) => { sum += b.c; if (i >= n) sum -= K[i - n].c; b["m" + n] = i >= n - 1 ? sum / n : null; });
+    }
+  }
+  function maVals(bars) { return bars.flatMap((b) => MAS.filter(([n]) => maOn.has(n)).map(([n]) => b["m" + n])); }
+  function maLines(bars, G, S) {
+    let s = "";
+    for (const [n, col] of MAS) {
+      if (!maOn.has(n)) continue;
+      let d = "", pen = false;
+      bars.forEach((b, i) => { const v = b["m" + n]; if (v == null) { pen = false; return; } d += `${pen ? "L" : "M"}${G.x(i).toFixed(1)},${S.y(v).toFixed(1)}`; pen = true; });
+      if (d) s += `<path class="ma" d="${d}" stroke="${col}"/>`;
+    }
+    return s;
+  }
+  function drawLegend(b) {
+    const el = root.querySelector("#adamMa"); if (!el) return;
+    el.innerHTML = MAS.map(([n, col]) => {
+      const v = b ? b["m" + n] : null;
+      return `<button type="button" data-ma="${n}" class="${maOn.has(n) ? "on" : ""}" style="--c:${col}"><i></i>${n}日 <em>${v == null ? "–" : fmt(+v.toFixed(2))}</em></button>`;
+    }).join("");
+  }
+  // 最高／最低點標記
+  function hiLo(bars, G, S, x0 = 0) {
+    if (!bars.length) return "";
+    let hi = 0, lo = 0;
+    bars.forEach((b, i) => { if (b.h > bars[hi].h) hi = i; if (b.l < bars[lo].l) lo = i; });
+    const tag = (i, v, up) => {
+      const x = x0 + G.x(i), y = S.y(v), left = x > (G.W - G.P.r) * 0.7;
+      const ty = up ? y - 6 : y + 14;
+      return `<g class="hl ${up ? "hi" : "lo"}"><path d="M${x},${up ? y - 2 : y + 2}l-4,${up ? -5 : 5}h8z"/>`
+        + `<text x="${left ? x - 6 : x + 6}" y="${Math.max(G.P.t + 10, Math.min(G.H - G.P.b - 2, ty))}" text-anchor="${left ? "end" : "start"}">${up ? "最高" : "最低"} ${fmt(v)}</text></g>`;
+    };
+    return tag(hi, bars[hi].h, true) + tag(lo, bars[lo].l, false);
+  }
+  // 十字線價格標籤（右側座標軸）
+  function priceTag(G, S, py) {
+    const v = S.hi - ((py - G.P.t) * (S.hi - S.lo)) / (G.H - G.P.t - G.P.b);
+    return { v, html: `<rect x="${G.W - G.P.r + 1}" y="${py - 8}" width="${G.P.r - 2}" height="16" rx="3"/><text x="${G.W - G.P.r + 4}" y="${py + 4}">${fmt(+v.toFixed(v < 100 ? 2 : 1))}</text>` };
+  }
 
   // ---------------- K 線繪製 ----------------
   function geom(n, sm) {
@@ -127,18 +175,22 @@
   function drawMain() {
     const box = root.querySelector("#adamChart");
     const bars = view(); if (!bars.length) return;
-    const sm = innerWidth < 640, G = geom(bars.length, sm), S = scale(bars, G);
+    const sm = innerWidth < 640, G = geom(bars.length, sm), S = scale(bars, G, maVals(bars));
+    drawLegend(bars[bars.length - 1]);
     if (!sel) { const n = bars.length; sel = { a: Math.max(0, n - 40), b: n - 1 }; }
     box.innerHTML = `<svg viewBox="0 0 ${G.W} ${G.H}" width="100%">
       ${axes(G, S, bars)}
       <rect class="sel" id="adamSel"/>
       ${candles(bars, G, S)}
+      ${maLines(bars, G, S)}
+      ${hiLo(bars, G, S)}
       <line class="cur" id="adamCur" y1="${G.P.t}" y2="${G.H - G.P.b}" style="display:none"/>
       <line class="curh" id="adamCurH" x1="${G.P.l}" x2="${G.W - G.P.r}" style="display:none"/>
+      <g class="ptag" id="adamPt"></g>
       <rect class="hit" x="${G.P.l}" y="0" width="${G.W - G.P.l - G.P.r}" height="${G.H}"/>
     </svg><div class="rev-tip adam-tt" hidden></div>`;
     const svg = box.querySelector("svg"), tip = box.querySelector(".adam-tt");
-    const selR = svg.querySelector("#adamSel"), cur = svg.querySelector("#adamCur"), curH = svg.querySelector("#adamCurH");
+    const selR = svg.querySelector("#adamSel"), cur = svg.querySelector("#adamCur"), curH = svg.querySelector("#adamCurH"), pt = svg.querySelector("#adamPt");
     const paint = () => {
       const x0 = G.x(sel.a) - G.bw / 2, x1 = G.x(sel.b) + G.bw / 2;
       selR.setAttribute("x", x0); selR.setAttribute("width", x1 - x0); selR.setAttribute("y", G.P.t); selR.setAttribute("height", G.H - G.P.t - G.P.b);
@@ -153,8 +205,10 @@
     const hover = (i, py) => {
       const b = bars[i], x = G.x(i);
       cur.setAttribute("x1", x); cur.setAttribute("x2", x); cur.style.display = "";
-      if (py != null) { curH.setAttribute("y1", py); curH.setAttribute("y2", py); curH.style.display = ""; }
-      tip.innerHTML = `<b>${ymd(b.d)}</b><span>開</span><em>${fmt(b.o)}</em><span>高</span><em>${fmt(b.h)}</em><span>低</span><em>${fmt(b.l)}</em><span>收</span><em>${fmt(b.c)}</em><span>選取</span><em>${sel.b - sel.a + 1} 根</em>`;
+      if (py != null) { py = Math.max(G.P.t, Math.min(G.H - G.P.b, py)); curH.setAttribute("y1", py); curH.setAttribute("y2", py); curH.style.display = ""; pt.innerHTML = priceTag(G, S, py).html; pt.style.display = ""; }
+      const mas = MAS.filter(([n]) => maOn.has(n) && b["m" + n] != null).map(([n, col]) => `<span style="color:${col}">MA${n}</span><em>${fmt(+b["m" + n].toFixed(2))}</em>`).join("");
+      tip.innerHTML = `<b>${ymd(b.d)}</b><span>開</span><em>${fmt(b.o)}</em><span>高</span><em>${fmt(b.h)}</em><span>低</span><em>${fmt(b.l)}</em><span>收</span><em>${fmt(b.c)}</em>${mas}<span>選取</span><em>${sel.b - sel.a + 1} 根</em>`;
+      drawLegend(b);
       tip.hidden = false;
       const pct = (x / G.W) * 100; tip.style.left = pct < 50 ? "auto" : "8px"; tip.style.right = pct < 50 ? "56px" : "auto";
     };
@@ -181,7 +235,7 @@
     });
     const end = () => { if (drag && sel.b - sel.a < 4) { sel.b = Math.min(bars.length - 1, sel.a + 4); paint(); } drag = null; };
     svg.addEventListener("pointerup", end); svg.addEventListener("pointercancel", end);
-    svg.addEventListener("pointerleave", () => { if (!drag) { cur.style.display = "none"; curH.style.display = "none"; tip.hidden = true; } });
+    svg.addEventListener("pointerleave", () => { if (!drag) { cur.style.display = "none"; curH.style.display = "none"; pt.style.display = "none"; tip.hidden = true; drawLegend(bars[bars.length - 1]); } });
   }
 
   // ---------------- 擷取片段（工作區） ----------------
@@ -245,7 +299,7 @@
     const last = K[K.length - 1];
     const n = seg.length, hist = K.slice(-Math.max(n, 30));
     const shift = last.c - seg[0].o;  // 把片段第一根的開盤接在最新收盤
-    const proj = seg.map((b) => ({ d: "", o: b.o + shift, h: b.h + shift, l: b.l + shift, c: b.c + shift }));
+    const proj = seg.map((b, k) => ({ d: "", k: k + 1, o: b.o + shift, h: b.h + shift, l: b.l + shift, c: b.c + shift }));
     const all = hist.concat(proj);
     const sm = innerWidth < 640, G = geom(all.length, sm), S = scale(all, G);
     const jx = G.x(hist.length - 1) + G.bw / 2;
@@ -259,7 +313,32 @@
       <text class="ax" x="${jx + 4}" y="${G.P.t + 12}">今日 →</text>
       ${candles(hist, G, S)}
       <g transform="translate(${G.bw * hist.length},0)">${candles(proj, G, S, "pj")}</g>
-    </svg>`;
+      ${hiLo(all, G, S)}
+      <line class="cur" y1="${G.P.t}" y2="${G.H - G.P.b}" style="display:none"/>
+      <line class="curh" x1="${G.P.l}" x2="${G.W - G.P.r}" style="display:none"/>
+      <g class="ptag" style="display:none"></g>
+      <rect class="hit" x="${G.P.l}" y="0" width="${G.W - G.P.l - G.P.r}" height="${G.H}"/>
+    </svg><div class="rev-tip adam-tt" hidden></div>`;
+    const svg = box.querySelector("svg"), tip = box.querySelector(".adam-tt");
+    const cur = svg.querySelector(".cur"), curH = svg.querySelector(".curh"), pt = svg.querySelector(".ptag");
+    const on = (e) => {
+      const rc = svg.getBoundingClientRect();
+      const px = (e.clientX - rc.left) * (G.W / rc.width);
+      const py = Math.max(G.P.t, Math.min(G.H - G.P.b, (e.clientY - rc.top) * (G.H / rc.height)));
+      const i = Math.max(0, Math.min(all.length - 1, Math.floor((px - G.P.l) / G.bw)));
+      const b = all[i], x = G.x(i), P = priceTag(G, S, py);
+      cur.setAttribute("x1", x); cur.setAttribute("x2", x); cur.style.display = "";
+      curH.setAttribute("y1", py); curH.setAttribute("y2", py); curH.style.display = "";
+      pt.innerHTML = P.html; pt.style.display = "";
+      const pc = ((P.v / last.c - 1) * 100);
+      tip.innerHTML = `<b>${b.d ? ymd(b.d) : `預估第 ${b.k} 天`}</b><span>開</span><em>${fmt(+b.o.toFixed(2))}</em><span>高</span><em>${fmt(+b.h.toFixed(2))}</em><span>低</span><em>${fmt(+b.l.toFixed(2))}</em><span>收</span><em>${fmt(+b.c.toFixed(2))}</em>`
+        + `<span>十字線</span><em>${fmt(+P.v.toFixed(P.v < 100 ? 2 : 1))}（${pc >= 0 ? "+" : ""}${pc.toFixed(1)}%）</em>`;
+      tip.hidden = false;
+      const pct = (x / G.W) * 100; tip.style.left = pct < 50 ? "auto" : "8px"; tip.style.right = pct < 50 ? "56px" : "auto";
+    };
+    svg.addEventListener("pointermove", on);
+    svg.addEventListener("pointerdown", on);
+    svg.addEventListener("pointerleave", () => { cur.style.display = "none"; curH.style.display = "none"; pt.style.display = "none"; tip.hidden = true; });
   }
 
   // ---------------- 按鈕 ----------------
@@ -267,6 +346,8 @@
     const sp = e.target.closest("[data-span]");
     if (sp && root.contains(sp)) { span = +sp.dataset.span; store.set("span", span); sel = null;
       root.querySelectorAll("[data-span]").forEach((b) => b.classList.toggle("on", +b.dataset.span === span)); drawMain(); return; }
+    const mb = e.target.closest("[data-ma]");
+    if (mb && root.contains(mb)) { const n = +mb.dataset.ma; maOn.has(n) ? maOn.delete(n) : maOn.add(n); store.set("ma", [...maOn].join(",")); drawMain(); return; }
     const b = e.target.closest("[data-act]"); if (!b || !root.contains(b) || !K) return;
     const a = b.dataset.act, bars = view();
     if (a === "cap") { seg = bars.slice(sel.a, sel.b + 1).map((x) => ({ ...x })); stage = 1; docked = false; }
