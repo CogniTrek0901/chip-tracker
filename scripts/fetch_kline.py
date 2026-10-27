@@ -1,7 +1,7 @@
-"""K 線資料（亞當理論用）：每檔上市櫃股票近一年日 K，存 site/data/k/{代號}.json。
+"""K 線資料（亞當理論用）：每檔上市櫃股票近兩年日 K（240 日線需要），存 site/data/k/{代號}.json。
 
 {"c": 代號, "n": 名稱, "m": 市場, "d": [[YYYYMMDD, 開, 高, 低, 收, 量(張)], ...]}
-- 第一次（檔案不存在或太舊）抓 Yahoo range=1y，之後每天抓 range=5d 接在後面
+- 第一次（檔案不存在、太舊或還沒抓過兩年）抓 Yahoo range=2y，之後每天抓 range=5d 接在後面
 - 最新一筆已是最近交易日就略過（早上補跑時不會重抓）
 環境變數 KLINE_MAX：本次最多處理幾檔（預設全部）
 """
@@ -19,7 +19,7 @@ from common import DATA_DIR, META_DIR, SITE_DATA, load_json, save_json
 
 TZ = dt.timezone(dt.timedelta(hours=8))
 OUT = SITE_DATA / "k"
-KEEP = 260  # 約一年交易日
+KEEP = 500  # 約兩年交易日（顯示一年＋240 日線暖身）
 HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
 
 
@@ -52,17 +52,18 @@ def work(code: str, info: dict, last_day: str):
     path = OUT / f"{code}.json"
     old = load_json(path, None)
     rows = (old or {}).get("d") or []
-    if rows and rows[-1][0] >= last_day:
+    full = bool((old or {}).get("f2"))
+    if full and rows and rows[-1][0] >= last_day:
         return "skip"
-    fresh = not rows or rows[-1][0] < (dt.datetime.now(TZ) - dt.timedelta(days=20)).strftime("%Y%m%d")
-    got = yahoo(code, info.get("m", "上市"), "1y" if fresh else "5d")
+    fresh = not full or not rows or rows[-1][0] < (dt.datetime.now(TZ) - dt.timedelta(days=20)).strftime("%Y%m%d")
+    got = yahoo(code, info.get("m", "上市"), "2y" if fresh else "5d")
     if not got:
         return "fail"
     by = {r[0]: r for r in rows}
     for r in got:
         by[r[0]] = r
     merged = [by[k] for k in sorted(by)][-KEEP:]
-    save_json(path, {"c": code, "n": info.get("n", ""), "m": info.get("m", ""), "d": merged}, compact=True)
+    save_json(path, {"c": code, "n": info.get("n", ""), "m": info.get("m", ""), "f2": 1, "d": merged}, compact=True)
     return "new" if fresh else "upd"
 
 
