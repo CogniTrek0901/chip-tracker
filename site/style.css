@@ -824,3 +824,20 @@ table.sm-tbl tr.sm-g small { margin-left: 8px; font-weight: 400; display: inline
   .sm-ctl input[type=search] { width: 100%; }
   .adam-btns .sm { margin-left: 0; }
 }
+
+/* 亞當理論：均線、最高最低、十字線價格（2026.10.27） */
+.adam-ma { display: flex; flex-wrap: wrap; gap: 6px; }
+.adam-ma button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.adam-ma button i { width: 14px; height: 3px; border-radius: 2px; background: var(--c); opacity: .35; }
+.adam-ma button em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--muted); }
+.adam-ma button.on { color: var(--ink); border-color: var(--c); }
+.adam-ma button.on i { opacity: 1; }
+.adam-ma button.on em { color: var(--c); font-weight: 700; }
+.adam-chart .ma { fill: none; stroke-width: 1.4; pointer-events: none; }
+.adam-chart .hl { pointer-events: none; }
+.adam-chart .hl text { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--card); stroke-width: 3px; }
+.adam-chart .hl.hi path, .adam-chart .hl.hi text { fill: var(--up); }
+.adam-chart .hl.lo path, .adam-chart .hl.lo text { fill: var(--down); }
+.adam-chart .ptag { pointer-events: none; }
+.adam-chart .ptag rect { fill: var(--ink); }
+.adam-chart .ptag text { fill: var(--card); font-size: 11px; font-variant-numeric: tabular-nums; }
