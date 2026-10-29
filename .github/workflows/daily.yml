@@ -2,9 +2,16 @@ name: 每日強勢族群
 
 on:
   schedule:
-    # 台北時間 週一～五 14:47 收盤後、19:07 再跑一次（新聞與重大訊息較齊全，AI 理由較準）
+    # GitHub 排程常延遲數小時或漏跑，所以多設備援時段（台北時間 週一～五）：
+    # 14:47、15:27、16:17 收盤後；19:07、19:57、20:47、21:37 晚間（新聞與重大訊息較齊全，AI 理由較準）
+    # 每次先由 scripts/plan_run.py 判斷今天是否已更新，已完成就略過
     - cron: "47 6 * * 1-5"
+    - cron: "27 7 * * 1-5"
+    - cron: "17 8 * * 1-5"
     - cron: "7 11 * * 1-5"
+    - cron: "57 11 * * 1-5"
+    - cron: "47 12 * * 1-5"
+    - cron: "37 13 * * 1-5"
   workflow_dispatch:
     inputs:
       date:
@@ -35,18 +42,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: 判斷是否需要更新
+        run: python -u scripts/plan_run.py hot
       - name: 月營收
+        if: env.RUN == '1'
         run: python scripts/fetch_revenue.py
         env:
           REV_MAX_PAGES: ${{ inputs.rev_pages || '24' }}
         continue-on-error: true
       - name: 強勢族群
+        if: env.RUN == '1'
         run: python scripts/fetch_daily.py ${{ inputs.date }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-flash-latest' }}
         continue-on-error: true
       - name: 提交資料
+        if: env.RUN == '1'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -55,9 +67,13 @@ jobs:
           git pull --rebase -X theirs origin main
           git push
       - name: 加上版本號避免瀏覽器快取舊檔
+        if: env.RUN == '1'
         run: sed -i -E "s#(src|href)=\"([a-z]+\.(js|css))\"#\1=\"\2?v=${GITHUB_SHA::7}\"#g" site/index.html
       - uses: actions/configure-pages@v5
+        if: env.RUN == '1'
       - uses: actions/upload-pages-artifact@v3
+        if: env.RUN == '1'
         with:
           path: site
       - uses: actions/deploy-pages@v4
+        if: env.RUN == '1'
