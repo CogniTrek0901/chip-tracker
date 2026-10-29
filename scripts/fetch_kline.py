@@ -19,6 +19,8 @@ from common import DATA_DIR, META_DIR, SITE_DATA, load_json, save_json
 
 TZ = dt.timezone(dt.timedelta(hours=8))
 OUT = SITE_DATA / "k"
+TDAYS: set = set()
+TMAX = ""
 KEEP = 500  # 約兩年交易日（顯示一年＋240 日線暖身）
 HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
 
@@ -53,15 +55,22 @@ def work(code: str, info: dict, last_day: str):
     old = load_json(path, None)
     rows = (old or {}).get("d") or []
     full = bool((old or {}).get("f2"))
+    # Yahoo 偶爾在休市日（例如颱風假）多給一根 K 棒，以證交所交易日為準剔除
+    clean = [r for r in rows if r[0] in TDAYS or r[0] > TMAX]
     if full and rows and rows[-1][0] >= last_day:
+        if len(clean) != len(rows):
+            save_json(path, {**old, "d": clean}, compact=True)
+            return "fix"
         return "skip"
+    rows = clean
     fresh = not full or not rows or rows[-1][0] < (dt.datetime.now(TZ) - dt.timedelta(days=20)).strftime("%Y%m%d")
     got = yahoo(code, info.get("m", "上市"), "2y" if fresh else "5d")
     if not got:
         return "fail"
     by = {r[0]: r for r in rows}
     for r in got:
-        by[r[0]] = r
+        if r[0] in TDAYS or r[0] > TMAX:
+            by[r[0]] = r
     merged = [by[k] for k in sorted(by)][-KEEP:]
     save_json(path, {"c": code, "n": info.get("n", ""), "m": info.get("m", ""), "f2": 1, "d": merged}, compact=True)
     return "new" if fresh else "upd"
@@ -72,6 +81,8 @@ def main() -> int:
     tx = load_json(DATA_DIR / "tools" / "taiex.json", {}) or {}
     today = dt.datetime.now(TZ).strftime("%Y%m%d")
     last_day = max((d for d in tx if d <= today), default=today)
+    global TDAYS, TMAX
+    TDAYS, TMAX = set(tx), max(tx, default="")
     # 收盤前（14:00 前）最近交易日以前一天為準
     if last_day == today and dt.datetime.now(TZ).hour < 14:
         last_day = max((d for d in tx if d < today), default=today)
