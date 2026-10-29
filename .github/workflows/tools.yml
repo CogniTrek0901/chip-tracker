@@ -2,12 +2,20 @@ name: 小功能資料
 
 on:
   schedule:
-    # 台北時間：17:07、00:07、05:37 只更新富台指換算；21:47、08:17 全部更新（融資、期貨、席勒本益比）
+    # GitHub 排程常延遲數小時或漏跑，所以多設備援時段（台北時間）：
+    # 17:07、17:37、21:47、22:27、23:07、23:47、00:07、05:37、08:17、08:57、09:37
+    # 每次先由 scripts/plan_run.py 判斷：當天融資等資料還沒到就跑全部（all），已是最新就只更新富台指（ft）
     - cron: "7 9 * * 1-5"
+    - cron: "37 9 * * 1-5"
+    - cron: "47 13 * * 1-5"
+    - cron: "27 14 * * 1-5"
+    - cron: "7 15 * * 1-5"
+    - cron: "47 15 * * 1-5"
     - cron: "7 16 * * 1-5"
     - cron: "37 21 * * 1-5"
-    - cron: "47 13 * * 1-5"
     - cron: "17 0 * * 1-5"
+    - cron: "57 0 * * 1-5"
+    - cron: "37 1 * * 1-5"
   workflow_dispatch:
     inputs:
       mode:
@@ -39,16 +47,9 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: 判斷模式
-        run: |
-          MODE="${{ inputs.mode }}"
-          if [ -z "$MODE" ]; then
-            case "${{ github.event.schedule }}" in
-              "47 13 * * 1-5"|"17 0 * * 1-5") MODE=all ;;
-              *) MODE=ft ;;
-            esac
-          fi
-          echo "MODE=$MODE" >> "$GITHUB_ENV"
-          echo "mode=$MODE"
+        run: python -u scripts/plan_run.py tools
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
       - name: K 線（亞當理論）
         if: env.MODE == 'all'
         run: python -u scripts/fetch_kline.py
