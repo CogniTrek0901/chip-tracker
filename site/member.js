@@ -234,7 +234,7 @@ async function refresh() {
   if (user) { try { const s = await getDoc(doc(db, "users", user.uid)); profile = s.exists() ? s.data() : null; } catch { profile = null; } }
   renderAcct();
   // 讓其他模組（強勢族群、小功能）知道登入狀態
-  window.CTAuth = { user, profile };
+  window.CTAuth = { user, profile, isAdmin };
   document.dispatchEvent(new CustomEvent("ct:auth"));
   if (curTab) render(curTab);
 }
@@ -248,6 +248,29 @@ onAuthStateChanged(auth, async (u) => {
     else { msg("登入成功", true); setTimeout(() => dlg.close(), 500); }
   } else if (u && !profile) openAuth("profile");
 });
+
+// ======================= 自訂清單（個股融資維持率用） =======================
+// config/lists：版主維護的 AI 供應鏈增減（aiAdd 補進、aiDel 剔除），會員可讀；watch/{uid}：每位會員自己的觀察清單
+window.CTLists = {
+  async getAI() {
+    const s = await getDoc(doc(db, "config", "lists"));
+    const d = s.exists() ? s.data() : {};
+    return { aiAdd: d.aiAdd || [], aiDel: d.aiDel || [] };
+  },
+  async setAI(aiAdd, aiDel) {
+    if (!isAdmin) throw new Error("只有版主可以修改");
+    await setDoc(doc(db, "config", "lists"), { aiAdd, aiDel, ts: serverTimestamp() });
+  },
+  async getWatch() {
+    if (!user) return [];
+    const s = await getDoc(doc(db, "watch", user.uid));
+    return s.exists() ? s.data().codes || [] : [];
+  },
+  async setWatch(codes) {
+    if (!user) throw new Error("請先登入");
+    await setDoc(doc(db, "watch", user.uid), { codes: codes.slice(0, 300), ts: serverTimestamp() });
+  },
+};
 
 // ======================= 分頁 =======================
 document.addEventListener("ct:tab", (e) => { curTab = e.detail; render(curTab); if (ga) try { logEvent(ga, "select_content", { content_type: "tab", item_id: curTab }); } catch { /* ignore */ } });
