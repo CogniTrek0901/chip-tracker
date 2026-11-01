@@ -193,6 +193,7 @@
     } catch { /* ignore */ }
     return GRP;
   }
+  const kTxt = (c, m) => (c ? `${m}${c[0] === "init" ? "起點成本" : "成本"} × ${fmt(c[1], 3)}` : `${m}尚未校正`);
   async function drawStockMargin() {
     const box = $("#smBox"); if (!box) return;
     try { SM = SM || (await getJSON("stock_margin")); } catch { box.innerHTML = '<div class="lock"><h3>個股融資維持率準備中</h3><p>下一次每日更新（約晚上 9:50）後就會出現。</p></div>'; return; }
@@ -205,8 +206,9 @@
         </div>
         <div class="sm-legend"><span class="rt r1">&lt; 130%</span> 已達追繳 <span class="rt r2">130～140%</span> 接近追繳 <span class="rt r3">140～150%</span> 偏低</div></div>
       <div id="smList"></div>
-      <p class="hint">估算方式：每天以融資買進張數 × 當日均價累計「融資平均成本」，維持率 ＝ 收盤價 ÷（平均成本 × 融資成數）。融資成數以上市 60%、上櫃 50% 計，
-        實際依券商與個股成數不同會有差異，僅供參考。上市資料至 ${SM.d ? `${SM.d.slice(4, 6)}/${SM.d.slice(6)}` : "–"}${SM.od ? `、上櫃至 ${SM.od.slice(4, 6)}/${SM.od.slice(6)}` : "（上櫃資料暫缺）"}；更新於 ${esc(SM.updated)}。</p>`;
+      <p class="hint">估算方式：每天以「融資買進 − 資券互抵」張數 × 當日均價，用移動平均推算融資平均成本（除權息、減資復牌日依參考價同步調整），維持率 ＝ 收盤價 ÷（平均成本 × 60%）。
+        再以證交所、櫃買中心公布的融資金額總額校正成本，讓個股加總與官方大盤維持率一致（${kTxt(SM.k && SM.k["上市"], "上市")}、${kTxt(SM.k && SM.k["上櫃"], "上櫃")}）。
+        融資成數依現行規定上市、上櫃皆以六成計；注意股、處置股與各券商實際成數可能較低，個人追繳依整戶維持率計算，本表僅供參考。上市資料至 ${SM.d ? `${SM.d.slice(4, 6)}/${SM.d.slice(6)}` : "–"}${SM.od ? `、上櫃至 ${SM.od.slice(4, 6)}/${SM.od.slice(6)}` : "（上櫃資料暫缺）"}；更新於 ${esc(SM.updated)}。</p>`;
     const re = () => { smState.q = $("#smQ").value.trim(); smState.sort = $("#smSort").value; smState.group = $("#smGroup").checked;
       store.set("smSort", smState.sort); store.set("smGroup", smState.group ? "1" : "0"); smList(gm); };
     $("#smQ").addEventListener("input", re); $("#smSort").addEventListener("change", re); $("#smGroup").addEventListener("change", re);
