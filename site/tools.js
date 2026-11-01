@@ -183,57 +183,150 @@
 
   // ---------------- 2b. 個股融資維持率 ----------------
   let SM = null, GRP = null;
-  const smState = { q: "", sort: store.get("smSort", "asc"), group: store.get("smGroup", "0") === "1", th: 150 };
+  const smState = { q: "", sort: store.get("smSort", "asc"), group: store.get("smGroup", "0") === "1", th: 150,
+    view: store.get("smView", "all") };
+  // AI 供應鏈預設＝本站產業鏈中這幾條；版主可再勾選增減（存在 Firestore config/lists）
+  const AI_CHAINS = ["semi", "ai-server", "pcb", "optical"];
+  const AI_DEF = new Set();
+  // LST：ai＝目前 AI 名單、watch＝本人觀察清單、uid＝載入時的帳號、err＝讀取失敗訊息
+  const LST = { ai: null, aiAdd: [], aiDel: [], watch: new Set(), uid: null, err: "", busy: false };
   async function groupMap() {
     if (GRP) return GRP;
     GRP = new Map();
     try {
       const t = await (await fetch("data/themes.json", { cache: "no-cache" })).json();
-      for (const ch of t.chains || []) for (const st of ch.stages || []) for (const sg of st.segments || []) for (const c of sg.codes || []) if (!GRP.has(c)) GRP.set(c, sg.name);
+      for (const ch of t.chains || []) for (const st of ch.stages || []) for (const sg of st.segments || []) for (const c of sg.codes || []) {
+        if (!GRP.has(c)) GRP.set(c, sg.name);
+        if (AI_CHAINS.includes(ch.id)) AI_DEF.add(c);
+      }
     } catch { /* ignore */ }
     return GRP;
+  }
+  const isAdm = () => !!window.CTAuth?.isAdmin;
+  const aiSet = () => new Set([...AI_DEF, ...LST.aiAdd].filter((c) => !LST.aiDel.includes(c)));
+  async function loadLists() {
+    const uid = window.CTAuth?.user?.uid || null;
+    if (LST.ai && LST.uid === uid) return;
+    LST.uid = uid; LST.err = "";
+    const L = window.CTLists;
+    if (!L) { LST.ai = aiSet(); return; }
+    const [a, w] = await Promise.allSettled([L.getAI(), L.getWatch()]);
+    if (a.status === "fulfilled") { LST.aiAdd = a.value.aiAdd; LST.aiDel = a.value.aiDel; }
+    if (w.status === "fulfilled") LST.watch = new Set(w.value);
+    if (a.status === "rejected" || w.status === "rejected") {
+      const e = (a.reason || w.reason || {});
+      LST.err = e.code === "permission-denied" ? "清單功能尚未開通（資料庫權限還沒更新），目前 AI 供應鏈先用預設名單、觀察清單暫時無法儲存。" : "清單讀取失敗，請稍後重新整理。";
+    }
+    LST.ai = aiSet();
+  }
+  function smMsg(t, ok) { const m = $("#smMsg"); if (!m) return; m.textContent = t; m.className = "sm-msg" + (ok ? " ok" : ""); m.hidden = !t;
+    clearTimeout(smMsg.t); if (t) smMsg.t = setTimeout(() => { m.hidden = true; }, 4000); }
+  async function toggleWatch(c, on) {
+    const prev = new Set(LST.watch);
+    on ? LST.watch.add(c) : LST.watch.delete(c);
+    smList(GRP); smCounts();
+    try { await window.CTLists.setWatch([...LST.watch]); smMsg(on ? `已加入觀察清單：${c}` : `已移出觀察清單：${c}`, true); }
+    catch (e) { LST.watch = prev; smList(GRP); smCounts(); smMsg(e.code === "permission-denied" ? "觀察清單尚未開通（資料庫權限還沒更新）。" : "儲存失敗：" + (e.message || e)); }
+  }
+  async function toggleAI(c, on) {
+    const pa = [...LST.aiAdd], pd = [...LST.aiDel];
+    LST.aiAdd = LST.aiAdd.filter((x) => x !== c); LST.aiDel = LST.aiDel.filter((x) => x !== c);
+    if (on && !AI_DEF.has(c)) LST.aiAdd.push(c);
+    if (!on && AI_DEF.has(c)) LST.aiDel.push(c);
+    LST.ai = aiSet(); smList(GRP); smCounts();
+    try { await window.CTLists.setAI(LST.aiAdd, LST.aiDel); smMsg(on ? `已加入 AI 供應鏈：${c}` : `已從 AI 供應鏈移除：${c}`, true); }
+    catch (e) { LST.aiAdd = pa; LST.aiDel = pd; LST.ai = aiSet(); smList(GRP); smCounts();
+      smMsg(e.code === "permission-denied" ? "AI 供應鏈名單尚未開通（資料庫權限還沒更新）。" : "儲存失敗：" + (e.message || e)); }
+  }
+  function smCounts() {
+    const a = $('[data-smv="ai"] small'), w = $('[data-smv="watch"] small');
+    if (a) a.textContent = LST.ai ? LST.ai.size : ""; if (w) w.textContent = LST.watch.size;
   }
   const kTxt = (c, m) => (c ? `${m}${c[0] === "init" ? "起點成本" : "成本"} × ${fmt(c[1], 3)}` : `${m}尚未校正`);
   async function drawStockMargin() {
     const box = $("#smBox"); if (!box) return;
     try { SM = SM || (await getJSON("stock_margin")); } catch { box.innerHTML = '<div class="lock"><h3>個股融資維持率準備中</h3><p>下一次每日更新（約晚上 9:50）後就會出現。</p></div>'; return; }
     const gm = await groupMap();
+    await loadLists();
+    const vb = (k, t) => `<button type="button" data-smv="${k}" class="${smState.view === k ? "on" : ""}">${t}</button>`;
     box.innerHTML = `<div class="sm-head"><h3>個股融資維持率（估算）<small>維持率低於 150% 的上市櫃個股</small></h3>
+        <div class="seg sm-view">${vb("all", "全部")}${vb("ai", "AI供應鏈 <small></small>")}${vb("watch", "觀察清單 <small></small>")}</div>
         <div class="sm-ctl">
           <input id="smQ" type="search" placeholder="搜尋代號或名稱（可查任一檔）" value="${esc(smState.q)}">
           <select id="smSort"><option value="asc" ${smState.sort === "asc" ? "selected" : ""}>維持率 小 → 大</option><option value="desc" ${smState.sort === "desc" ? "selected" : ""}>維持率 大 → 小</option></select>
           <label class="sm-chk"><input type="checkbox" id="smGroup" ${smState.group ? "checked" : ""}> 同族群放一起</label>
         </div>
         <div class="sm-legend"><span class="rt r1">&lt; 130%</span> 已達追繳 <span class="rt r2">130～140%</span> 接近追繳 <span class="rt r3">140～150%</span> 偏低</div></div>
+      <p class="sm-msg" id="smMsg" hidden></p>
+      ${LST.err ? `<p class="sm-msg warn">${esc(LST.err)}</p>` : ""}
       <div id="smList"></div>
-      <p class="hint">估算方式：每天以「融資買進 − 資券互抵」張數 × 當日均價，用移動平均推算融資平均成本（除權息、減資復牌日依參考價同步調整），維持率 ＝ 收盤價 ÷（平均成本 × 60%）。
+      <p class="hint">AI 供應鏈：預設取本站產業鏈中的半導體、AI 伺服器、PCB 與載板、光通訊與網通，另含版主增補；觀察清單：按 ☆ 加入，只有你自己看得到，不在列表上的可先用搜尋找出來再加入。<br>估算方式：每天以「融資買進 − 資券互抵」張數 × 當日均價，用移動平均推算融資平均成本（除權息、減資復牌日依參考價同步調整），維持率 ＝ 收盤價 ÷（平均成本 × 60%）。
         再以證交所、櫃買中心公布的融資金額總額校正成本，讓個股加總與官方大盤維持率一致（${kTxt(SM.k && SM.k["上市"], "上市")}、${kTxt(SM.k && SM.k["上櫃"], "上櫃")}）。
         融資成數依現行規定上市、上櫃皆以六成計；注意股、處置股與各券商實際成數可能較低，個人追繳依整戶維持率計算，本表僅供參考。上市資料至 ${SM.d ? `${SM.d.slice(4, 6)}/${SM.d.slice(6)}` : "–"}${SM.od ? `、上櫃至 ${SM.od.slice(4, 6)}/${SM.od.slice(6)}` : "（上櫃資料暫缺）"}；更新於 ${esc(SM.updated)}。</p>`;
     const re = () => { smState.q = $("#smQ").value.trim(); smState.sort = $("#smSort").value; smState.group = $("#smGroup").checked;
       store.set("smSort", smState.sort); store.set("smGroup", smState.group ? "1" : "0"); smList(gm); };
     $("#smQ").addEventListener("input", re); $("#smSort").addEventListener("change", re); $("#smGroup").addEventListener("change", re);
+    box.querySelector(".sm-view").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-smv]"); if (!b) return;
+      smState.view = b.dataset.smv; store.set("smView", smState.view);
+      box.querySelectorAll("[data-smv]").forEach((x) => x.classList.toggle("on", x === b)); smList(gm);
+    });
+    const list = $("#smList");
+    list.addEventListener("click", (e) => {
+      const st = e.target.closest("[data-star]"), adm = e.target.closest(".sm-adm");
+      if (!st && !adm) return;
+      e.stopPropagation();  // 不要觸發整列的月營收圖
+      if (st) { e.preventDefault(); if (!LST.busy) toggleWatch(st.dataset.star, !LST.watch.has(st.dataset.star)); }
+    });
+    list.addEventListener("change", (e) => {
+      const i = e.target.closest("input[data-adm]"); if (!i) return;
+      (i.dataset.adm === "ai" ? toggleAI : toggleWatch)(i.dataset.c, i.checked);
+    });
+    smCounts();
     smList(gm);
   }
   function smList(gm) {
-    const q = smState.q;
+    const q = smState.q, view = smState.view, adm = isAdm();
     let rows = (SM.rows || []).filter((r) => r[6] >= 90 && r[6] <= 500).map((r) => ({ c: r[0], n: r[1], m: r[2], i: r[3], cl: r[4], avg: r[5], ratio: r[6], bal: r[7], chg: r[8], g: gm.get(r[0]) || r[3] || "其他" }));
-    rows = q ? rows.filter((r) => r.c.includes(q) || r.n.includes(q)) : rows.filter((r) => r.ratio < smState.th);
+    const pick = view === "ai" ? LST.ai || new Set() : view === "watch" ? LST.watch : null;
+    if (pick) {
+      const have = new Set(rows.map((r) => r.c));
+      rows = rows.filter((r) => pick.has(r.c));
+      // 清單裡沒有融資資料的標的（沒融資、或估算失真被排除）也列出來，方便管理
+      const by = window.CT?.byCode;
+      for (const c of pick) if (!have.has(c)) { const x = by?.get(c); rows.push({ c, n: x?.name || "", m: x?.market || "", i: "", ratio: null, g: gm.get(c) || "其他", none: true }); }
+    }
+    if (q) rows = rows.filter((r) => r.c.includes(q) || r.n.includes(q));
+    else if (!pick) rows = rows.filter((r) => r.ratio < smState.th);
     const dir = smState.sort === "asc" ? 1 : -1;
-    rows.sort((a, b) => (a.ratio - b.ratio) * dir);
+    rows.sort((a, b) => (!!a.none - !!b.none) || (a.ratio - b.ratio) * dir);
     if (smState.group) {
       const gs = new Map();
       rows.forEach((r) => { if (!gs.has(r.g)) gs.set(r.g, []); gs.get(r.g).push(r); });
-      rows = [...gs.entries()].sort((a, b) => (a[1][0].ratio - b[1][0].ratio) * dir).flatMap(([g, rs]) => [{ hdr: g, n: rs.length }, ...rs]);
+      rows = [...gs.entries()].sort((a, b) => ((a[1][0].ratio ?? 999) - (b[1][0].ratio ?? 999)) * dir).flatMap(([g, rs]) => [{ hdr: g, n: rs.length }, ...rs]);
     }
     const cl = (v) => (v < 130 ? "r1" : v < 140 ? "r2" : v < 150 ? "r3" : "r4");
-    const cnt = rows.filter((r) => !r.hdr).length;
-    $("#smList").innerHTML = cnt ? `<p class="sm-cnt">${q ? `搜尋「${esc(q)}」：${cnt} 檔` : `共 ${cnt} 檔低於 150%（低於 140%：${rows.filter((r) => !r.hdr && r.ratio < 140).length} 檔）`}</p>
-      <div class="table-wrap"><table class="tl-tbl sm-tbl"><thead><tr><th class="l">股票</th><th class="l">族群</th><th>維持率</th><th>收盤</th><th>融資成本</th><th>融資餘額<small>(張)</small></th><th>增減<small>(張)</small></th></tr></thead><tbody>
-      ${rows.map((r) => r.hdr ? `<tr class="sm-g"><td colspan="7">${esc(r.hdr)}<small>${r.n} 檔</small></td></tr>` : `<tr data-rev="${r.c}" data-m="${esc(r.m)}">
-        <td class="l"><b>${r.c}</b> ${esc(r.n)}${r.m === "上櫃" ? '<span class="tag">櫃</span>' : ""}</td><td class="l"><span class="g">${esc(r.g)}</span></td>
+    const real = rows.filter((r) => !r.hdr), cnt = real.length;
+    const lo = (t) => real.filter((r) => r.ratio != null && r.ratio < t).length;
+    const name = view === "ai" ? "AI 供應鏈" : view === "watch" ? "觀察清單" : "";
+    const head = q ? `${name ? name + "・" : ""}搜尋「${esc(q)}」：${cnt} 檔`
+      : name ? `${name} ${cnt} 檔（低於 150%：${lo(150)} 檔、低於 140%：${lo(140)} 檔）` : `共 ${cnt} 檔低於 150%（低於 140%：${lo(140)} 檔）`;
+    const ai = LST.ai || new Set();
+    const star = (c) => adm ? "" : `<button type="button" class="sm-star${LST.watch.has(c) ? " on" : ""}" data-star="${c}" title="${LST.watch.has(c) ? "移出觀察清單" : "加入觀察清單"}" aria-label="觀察清單">${LST.watch.has(c) ? "★" : "☆"}</button>`;
+    const admCell = (c) => adm ? `<td class="sm-admc"><label class="sm-adm"><input type="checkbox" data-adm="ai" data-c="${c}" ${ai.has(c) ? "checked" : ""}>AI</label>
+        <label class="sm-adm"><input type="checkbox" data-adm="watch" data-c="${c}" ${LST.watch.has(c) ? "checked" : ""}>觀察</label></td>` : "";
+    const ncol = adm ? 8 : 7;
+    const empty = q ? "找不到這檔，或它目前沒有融資餘額。" : view === "watch" ? "觀察清單還是空的：在「全部」或搜尋結果裡按 ☆ 就能加入。"
+      : view === "ai" ? "AI 供應鏈名單載入中或目前沒有資料。" : "目前沒有維持率低於 150% 的個股。";
+    $("#smList").innerHTML = cnt ? `<p class="sm-cnt">${head}</p>
+      <div class="table-wrap"><table class="tl-tbl sm-tbl"><thead><tr><th class="l">股票</th><th class="l">族群</th><th>維持率</th><th>收盤</th><th>融資成本</th><th>融資餘額<small>(張)</small></th><th>增減<small>(張)</small></th>${adm ? '<th class="sm-admc">版主勾選</th>' : ""}</tr></thead><tbody>
+      ${rows.map((r) => r.hdr ? `<tr class="sm-g"><td colspan="${ncol}">${esc(r.hdr)}<small>${r.n} 檔</small></td></tr>` : r.none ? `<tr data-rev="${r.c}" data-m="${esc(r.m)}" class="sm-none">
+        <td class="l">${star(r.c)}<b>${r.c}</b> ${esc(r.n)}${r.m === "上櫃" ? '<span class="tag">櫃</span>' : ""}</td><td class="l"><span class="g">${esc(r.g)}</span></td>
+        <td colspan="5" class="l"><small>無融資資料（沒有融資餘額，或估算失真未列入）</small></td>${admCell(r.c)}</tr>` : `<tr data-rev="${r.c}" data-m="${esc(r.m)}">
+        <td class="l">${star(r.c)}<b>${r.c}</b> ${esc(r.n)}${r.m === "上櫃" ? '<span class="tag">櫃</span>' : ""}</td><td class="l"><span class="g">${esc(r.g)}</span></td>
         <td><span class="rt ${cl(r.ratio)}">${fmt(r.ratio, 1)}%</span></td><td>${fmt(r.cl, r.cl < 100 ? 2 : 1)}</td><td>${fmt(r.avg, r.avg < 100 ? 2 : 1)}</td>
-        <td>${fmt(r.bal)}</td><td class="${cls(r.chg)}">${sg(r.chg)}</td></tr>`).join("")}</tbody></table></div>`
-      : `<p class="empty">${q ? "找不到這檔，或它目前沒有融資餘額。" : "目前沒有維持率低於 150% 的個股。"}</p>`;
+        <td>${fmt(r.bal)}</td><td class="${cls(r.chg)}">${sg(r.chg)}</td>${admCell(r.c)}</tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">${empty}</p>`;
   }
 
   // ---------------- 3. 席勒本益比 ----------------
