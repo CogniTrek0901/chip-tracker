@@ -12,7 +12,7 @@
     get(k, d) { try { return localStorage.getItem("ct:tools:" + k) ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem("ct:tools:" + k, v); } catch { /* ignore */ } },
   };
-  const TABS = [["ft", "富台指換算"], ["margin", "融資維持率"], ["cape", "席勒本益比"], ["flow", "融資／外資"], ["alert", "期貨警示"], ["adam", "亞當理論"]];
+  const TABS = [["ft", "富台指換算"], ["margin", "融資維持率"], ["cape", "席勒本益比"], ["flow", "融資／外資"], ["alert", "期貨警示"], ["beta", "風險係數(β)"], ["adam", "亞當理論"]];
   let cur = store.get("sub", "ft"), onTab = false;
   const cache = {};
   async function getJSON(name) {
@@ -36,7 +36,7 @@
     const v = $("#toolsView");
     const A = window.CTAuth;
     if (!A) { v.innerHTML = '<p class="hint">確認登入狀態中…</p>'; return; }
-    if (!A.user) { v.innerHTML = lockHtml("小功能・登入後解鎖", "富台指換算、大盤融資維持率、席勒本益比、融資與外資未平倉、期貨警示，登入會員即可使用。"); return; }
+    if (!A.user) { v.innerHTML = lockHtml("小功能・登入後解鎖", "富台指換算、大盤融資維持率、席勒本益比、融資與外資未平倉、期貨警示、風險係數 β、亞當理論，登入會員即可使用。"); return; }
     v.innerHTML = `<div class="tools">
       <div class="seg tools-nav" role="tablist">${TABS.map(([k, t]) => `<button data-sub="${k}" class="${k === cur ? "on" : ""}">${t}</button>`).join("")}</div>
       <div id="toolBody"><p class="hint">載入中…</p></div></div>`;
@@ -51,6 +51,7 @@
       else if (cur === "cape") drawCape(b, await getJSON("cape"));
       else if (cur === "flow") b.innerHTML = flowHtml(await getJSON("flow"));
       else if (cur === "alert") b.innerHTML = alertHtml(await getJSON("futalert"));
+      else if (cur === "beta") await drawBeta(b, await getJSON("beta"));
       else if (cur === "adam") { if (window.CTAdam) window.CTAdam.render(b); else b.innerHTML = '<p class="hint">載入中…</p>'; }
     } catch (e) {
       b.innerHTML = `<div class="lock"><h3>資料準備中</h3><p>這項資料會在下一次自動更新後出現（${esc(e.message)}）。</p></div>`;
@@ -327,6 +328,73 @@
         <td><span class="rt ${cl(r.ratio)}">${fmt(r.ratio, 1)}%</span></td><td>${fmt(r.cl, r.cl < 100 ? 2 : 1)}</td><td>${fmt(r.avg, r.avg < 100 ? 2 : 1)}</td>
         <td>${fmt(r.bal)}</td><td class="${cls(r.chg)}">${sg(r.chg)}</td>${admCell(r.c)}</tr>`).join("")}</tbody></table></div>`
       : `<p class="empty">${empty}</p>`;
+  }
+
+  // ---------------- 2c. 風險係數 β ----------------
+  const bState = { q: "", p: store.get("bP", "6m"), dir: store.get("bDir", "desc"), view: store.get("bView", "all"),
+    group: store.get("bGroup", "0") === "1", all: false };
+  let BD = null;
+  async function drawBeta(b, d) {
+    BD = d;
+    const gm = await groupMap();
+    await loadLists();
+    const P = d.p || [];
+    if (!P.some(([k]) => k === bState.p)) bState.p = "6m";
+    const opts = P.flatMap(([k, t]) => [["desc", "高→低"], ["asc", "低→高"]].map(([dr, dt]) =>
+      `<option value="${k}|${dr}" ${k === bState.p && dr === bState.dir ? "selected" : ""}>${t}β值 (${dt})</option>`)).join("");
+    const vb = (k, t) => `<button type="button" data-bv="${k}" class="${bState.view === k ? "on" : ""}">${t}</button>`;
+    b.innerHTML = `<div class="sm-box beta-box"><div class="sm-head"><h3>風險係數（β）<small>個股相對加權指數的波動倍數</small></h3>
+        <div class="seg sm-view">${vb("all", "全部")}${vb("ai", `AI供應鏈 <small>${LST.ai ? LST.ai.size : ""}</small>`)}</div>
+        <div class="sm-ctl">
+          <input id="bQ" type="search" placeholder="搜尋代號或名稱" value="${esc(bState.q)}">
+          <select id="bSort">${opts}</select>
+          <label class="sm-chk"><input type="checkbox" id="bGroup" ${bState.group ? "checked" : ""}> 同族群放一起</label>
+        </div>
+        <div class="sm-legend"><span class="bt b1">≥ 1.5</span> 波動遠大於大盤 <span class="bt b2">1～1.5</span> 大於大盤 <span class="bt b3">0～1</span> 小於大盤 <span class="bt b4">&lt; 0</span> 與大盤反向</div></div>
+      <div id="bList"></div>
+      <p class="hint">β ＝ 個股日報酬與加權指數日報酬的共變異數 ÷ 加權指數日報酬的變異數。β ＝ 1.2 代表大盤漲跌 1% 時，這檔平均約漲跌 1.2%；β 越高波動越大、風險越高。
+        個股用除權息還原後的收盤價，上市、上櫃都以加權指數為基準；5 日、10 日等短天期樣本少、變動大，僅供參考。
+        區間以交易日計：一個月 20 日、三個月 60 日、半年 120 日、一年 240 日、二年 480 日、三年 720 日。資料至 ${d.d ? ymd(d.d) : "–"}；更新於 ${esc(d.updated)}。點標的可看月營收與股價。</p></div>`;
+    const re = () => { bState.q = $("#bQ").value.trim(); [bState.p, bState.dir] = $("#bSort").value.split("|"); bState.group = $("#bGroup").checked; bState.all = false;
+      store.set("bP", bState.p); store.set("bDir", bState.dir); store.set("bGroup", bState.group ? "1" : "0"); bList(gm); };
+    $("#bQ").addEventListener("input", re); $("#bSort").addEventListener("change", re); $("#bGroup").addEventListener("change", re);
+    b.querySelector(".sm-view").addEventListener("click", (e) => {
+      const x = e.target.closest("[data-bv]"); if (!x) return;
+      bState.view = x.dataset.bv; bState.all = false; store.set("bView", bState.view);
+      b.querySelectorAll("[data-bv]").forEach((y) => y.classList.toggle("on", y === x)); bList(gm);
+    });
+    $("#bList").addEventListener("click", (e) => { if (e.target.closest("[data-bmore]")) { e.stopPropagation(); bState.all = true; bList(gm); } });
+    bList(gm);
+  }
+  function bList(gm) {
+    const d = BD, P = d.p || [], pi = Math.max(0, P.findIndex(([k]) => k === bState.p)), col = 5 + pi;
+    const q = bState.q, dir = bState.dir === "asc" ? 1 : -1;
+    let rows = (d.rows || []).map((r) => ({ c: r[0], n: r[1], m: r[2], i: r[3], cl: r[4], b: r.slice(5), v: r[col], g: gm.get(r[0]) || r[3] || "其他" }));
+    if (bState.view === "ai") { const ai = LST.ai || new Set(); rows = rows.filter((r) => ai.has(r.c)); }
+    if (q) rows = rows.filter((r) => r.c.includes(q) || r.n.includes(q));
+    rows.sort((a, b) => ((a.v == null) - (b.v == null)) || (a.v - b.v) * dir);
+    const total = rows.filter((r) => r.v != null).length;
+    const LIM = 200;
+    const cut = !bState.all && !q && rows.length > LIM;
+    if (cut) rows = rows.slice(0, LIM);
+    if (bState.group) {
+      const gs = new Map();
+      rows.forEach((r) => { if (!gs.has(r.g)) gs.set(r.g, []); gs.get(r.g).push(r); });
+      rows = [...gs.entries()].sort((a, b) => ((a[1][0].v ?? (dir > 0 ? 99 : -99)) - (b[1][0].v ?? (dir > 0 ? 99 : -99))) * dir).flatMap(([g, rs]) => [{ hdr: g, n: rs.length }, ...rs]);
+    }
+    const bc = (v) => (v == null ? "" : v >= 1.5 ? "b1" : v >= 1 ? "b2" : v >= 0 ? "b3" : "b4");
+    const bv = (v, on) => (v == null ? '<span class="muted">–</span>' : on ? `<span class="bt ${bc(v)}">${v.toFixed(2)}</span>` : v.toFixed(2));
+    const name = bState.view === "ai" ? "AI 供應鏈" : "全部";
+    const cnt = rows.filter((r) => !r.hdr).length;
+    const ncol = 3 + P.length;
+    $("#bList").innerHTML = cnt ? `<p class="sm-cnt">${name}${q ? `・搜尋「${esc(q)}」` : ""}：${P[pi][1]}β值${dir < 0 ? "由高至低" : "由低至高"}，共 ${total} 檔${cut ? `（先列前 ${LIM} 檔）` : ""}</p>
+      <div class="table-wrap"><table class="tl-tbl sm-tbl beta-tbl"><thead><tr><th class="l">股票</th><th class="l">族群</th><th class="on">${P[pi][1]}β</th><th>收盤</th>
+        ${P.map(([k, t], j) => (j === pi ? "" : `<th>${t}</th>`)).join("")}</tr></thead><tbody>
+      ${rows.map((r) => r.hdr ? `<tr class="sm-g"><td colspan="${ncol}">${esc(r.hdr)}<small>${r.n} 檔</small></td></tr>` : `<tr data-rev="${r.c}" data-m="${esc(r.m)}">
+        <td class="l"><b>${r.c}</b> ${esc(r.n)}${r.m === "上櫃" ? '<span class="tag">櫃</span>' : ""}</td><td class="l"><span class="g">${esc(r.g)}</span></td>
+        <td class="on">${bv(r.v, true)}</td><td>${fmt(r.cl, r.cl < 100 ? 2 : 1)}</td>${r.b.map((v, j) => (j === pi ? "" : `<td>${bv(v, false)}</td>`)).join("")}</tr>`).join("")}</tbody></table></div>
+      ${cut ? `<button type="button" class="ghost beta-more" data-bmore>顯示全部 ${total} 檔</button>` : ""}`
+      : `<p class="empty">${q ? "找不到這檔，或它的交易資料不足。" : "目前沒有資料。"}</p>`;
   }
 
   // ---------------- 3. 席勒本益比 ----------------
