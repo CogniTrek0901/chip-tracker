@@ -855,3 +855,13 @@ table.sm-tbl tr.sm-none td { color: var(--muted); }
 table.sm-tbl .sm-admc { white-space: nowrap; text-align: center; }
 .sm-adm { display: inline-flex; align-items: center; gap: 3px; margin: 0 4px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
 .sm-adm input { margin: 0; }
+
+/* 風險係數 β（2026.11.02） */
+.bt { display: inline-block; min-width: 46px; text-align: center; padding: 1px 6px; border-radius: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bt.b1 { background: #b71c1c; color: #fff; }
+.bt.b2 { background: #fbe3c5; color: #8a4b00; }
+.bt.b3 { background: var(--tiff-soft); color: var(--tiff-ink); }
+.bt.b4 { background: #e3ecfa; color: #2457a6; }
+table.beta-tbl th.on { color: var(--tiff-ink); background: var(--tiff-soft); }
+table.beta-tbl td.on { background: color-mix(in srgb, var(--tiff-soft) 45%, transparent); }
+.beta-more { align-self: center; margin-top: 4px; padding: 7px 16px; border-radius: 10px; }
