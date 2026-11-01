@@ -520,31 +520,40 @@ def tpex_margin():
 
 
 def tpex_total_yi(j: dict):
-    """從櫃買融資融券餘額 JSON 找「融資金額」合計（仟元 → 億）；找不到回 None。"""
-    blocks = list(j.get("tables") or [])
-    if j.get("summary"):
-        blocks.append({"data": j["summary"]})
-    for t in blocks:
-        for r in t.get("data") or []:
-            if r and "融資金額" in re.sub(r"\s", "", str(r[0])):
-                vals = [num(x) for x in r[1:] if num(x)]
-                if vals:
-                    return vals[-1] / 1e5  # 仟元 → 億（取最後一個數字＝今日餘額）
+    """從櫃買融資融券餘額 JSON 找融資金額合計（仟元 → 億）；找不到回 None。
+    櫃買格式：tables[0].summary 有一列 ["", "融資金(仟元)", 前日餘額, 資買, 資賣, 現償, 今日餘額, ...]。"""
+    rows = list(j.get("summary") or [])
+    for t in j.get("tables") or []:
+        rows += list(t.get("summary") or []) + list(t.get("data") or [])
+    for r in rows:
+        if not r:
+            continue
+        head = [re.sub(r"\s", "", str(x)) for x in r[:2]]
+        if any(h.startswith("融資金") for h in head):
+            k = next(i for i, h in enumerate(head) if h.startswith("融資金"))
+            vals = [num(x) for x in r[k + 1:] if num(x)]
+            if vals:
+                return vals[-1] / 1e5  # 仟元 → 億（最後一個數字＝今日餘額）
     return None
 
 
 def tpex_hist(d: str):
     """上櫃單日資料：櫃買網站 JSON。回傳 ({代號: [有效買進, 前日餘額, 今日餘額, 收盤, 均價]}, 融資金額億)。
-    欄位依名稱比對；連線失敗回 ({}, None)，欄位無法辨識回 (None, None)。"""
+    欄位依名稱比對；當日無資料回 ({}, 總額)，連線一直失敗回 ("retry", None)，欄位無法辨識回 (None, None)。"""
     ymd = f"{d[:4]}/{d[4:6]}/{d[6:]}"
-    try:
-        mj = requests.get("https://www.tpex.org.tw/www/zh-tw/margin/balance", params={"date": ymd, "response": "json"},
-                          headers=TFX_HDR, timeout=40).json()
-        qj = requests.get("https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes", params={"date": ymd, "response": "json"},
-                          headers=TFX_HDR, timeout=40).json()
-    except Exception as e:
-        print(f"  ! 櫃買歷史 {d} 無法取得：{str(e)[:60]}", file=sys.stderr)
-        return {}, None
+    mj = qj = None
+    for k in range(4):  # 櫃買網站偶爾連線中斷（IncompleteRead），重試幾次
+        try:
+            mj = mj or requests.get("https://www.tpex.org.tw/www/zh-tw/margin/balance", params={"date": ymd, "response": "json"},
+                                    headers=TFX_HDR, timeout=40).json()
+            qj = qj or requests.get("https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes", params={"date": ymd, "response": "json"},
+                                    headers=TFX_HDR, timeout=40).json()
+            break
+        except Exception as e:
+            print(f"  ! 櫃買歷史 {d} 第 {k + 1} 次失敗：{str(e)[:60]}", file=sys.stderr)
+            time.sleep(5 * (k + 1))
+    if mj is None or qj is None:
+        return "retry", None
     total = tpex_total_yi(mj)
     mt = next((t for t in mj.get("tables") or [] if fidx(t.get("fields"), "資買", "融資買進") is not None), None)
     qt = next((t for t in qj.get("tables") or [] if fidx(t.get("fields"), "收盤") is not None), None)
@@ -646,6 +655,11 @@ def do_stock_margin(tx: dict, mg: dict | None = None):
     st = {} if os.environ.get("MARGIN_REBUILD") == "1" else (load_json(path, {}) or {})
     if st.get("v") != 2:  # 舊版狀態沒有 α／C0，重算
         st = {}
+    if st and st.get("ov") != 2:  # 上櫃改版（總額校正、斷線重試）：只重算上櫃
+        st["s"] = {c: v for c, v in st.get("s", {}).items() if v[3] != "上櫃"}
+        st["od"] = ""
+        st["k"] = {d: {m: c for m, c in v.items() if m != "上櫃"} for d, v in st.get("k", {}).items()}
+        print("個股融資：上櫃改版，重算上櫃 120 日")
     S, done_d, otc_d = st.get("s", {}), st.get("d", ""), st.get("od", "")
     kh = st.get("k", {})  # {日期: {"上市": [模式, 係數], "上櫃": [...]}}
     today = NOW.strftime("%Y%m%d")
@@ -694,13 +708,15 @@ def do_stock_margin(tx: dict, mg: dict | None = None):
 
     # 上櫃：櫃買網站逐日資料（含當日融資金額總額），第一次從 120 個交易日前開始；取不到時退回 OpenAPI 最新一日
     otc_todo = [d for d in recent[-120:] if d > otc_d] if otc_d else recent[-120:]
+    fmt_bad = False
     for d in otc_todo:
         if time.time() - START > BUDGET * 0.9:
             print(f"上櫃：已達時間上限，處理到 {otc_d}")
             break
         h, tot = tpex_hist(d)
         time.sleep(1.0)
-        if h is None:
+        if h is None or h == "retry":  # 欄位無法辨識或一直斷線：停在這天，下次從這裡接著補
+            fmt_bad = h is None
             break
         if not h:
             continue
@@ -710,7 +726,7 @@ def do_stock_margin(tx: dict, mg: dict | None = None):
         if cal:
             kh.setdefault(d, {})["上櫃"] = [cal[0], round(cal[1], 5)]
         otc_d = d
-    if not otc_d or (recent and otc_d < recent[-1]):
+    if fmt_bad and (not otc_d or (recent and otc_d < recent[-1])):  # 只有櫃買網站格式改版時才退回 OpenAPI
         od, om = tpex_margin()
         if od and om and od > (otc_d or "") and (otc_d or od == recent[-1]):
             for c, (buy, prev, bal, cl, av) in om.items():
@@ -718,7 +734,7 @@ def do_stock_margin(tx: dict, mg: dict | None = None):
             otc_d = od
 
     kh = dict(sorted(kh.items())[-60:])
-    save_json(path, {"v": 2, "d": done_d, "od": otc_d, "s": S, "k": kh}, compact=True)
+    save_json(path, {"v": 2, "ov": 2, "d": done_d, "od": otc_d, "s": S, "k": kh}, compact=True)
     if recent and done_d < recent[-1] and (load_json(OUT / "stock_margin.json", {}) or {}).get("d"):
         print(f"個股融資：上市只算到 {done_d}（最新 {recent[-1]}），還在重算或資料未到，先保留網站上的舊結果")
         return
