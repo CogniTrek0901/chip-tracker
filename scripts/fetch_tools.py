@@ -445,8 +445,58 @@ def init_avg(code: str, d: str, fallback):
     return round(sum(cl) / len(cl), 3) if cl else fallback
 
 
+# 有效買進是否扣除「資券互抵」（當日融資買進與融券賣出相抵、未留倉的部分）
+MARGIN_NET_OFFSET = os.environ.get("MARGIN_NET_OFFSET", "1") == "1"
+LEND = 0.6           # 最高融資比率：上市、上櫃皆六成（金管證投字第 1140382475 號令）
+K_CLAMP = 0.005      # 校正係數單日最大變動，防止資料缺漏造成跳動
+CALIB_MODE = os.environ.get("MARGIN_CALIB", "global")  # global＝全市場單一 k；init＝只校正起點成本殘留部分（實驗）
+
+
+def fidx(fields, *names):
+    """依欄位名稱找索引（證交所欄位會改版，不寫死位置）。"""
+    f = [re.sub(r"\s", "", str(x)) for x in fields or []]
+    for nm in names:
+        if nm in f:
+            return f.index(nm)
+    return None
+
+
+def tw_exright(d: str) -> dict:
+    """上市除權息：{代號: 除權息參考價 ÷ 除權息前收盤價}，證交所 TWT49U。"""
+    j = twse("/rwd/zh/exRight/TWT49U", startDate=d, endDate=d)
+    if j.get("stat") != "OK":
+        return {}
+    f = j.get("fields") or []
+    ci, pi, ri = fidx(f, "股票代號"), fidx(f, "除權息前收盤價"), fidx(f, "除權息參考價")
+    if None in (ci, pi, ri):
+        print("  ! TWT49U 欄位改版，略過除權息調整", file=sys.stderr)
+        return {}
+    out = {}
+    for r in j.get("data") or []:
+        p0, ref = num(r[pi]), num(r[ri])
+        if p0 and ref and 0.3 < ref / p0 < 1:
+            out[str(r[ci]).strip()] = ref / p0
+    return out
+
+
+def tw_reset(d: str) -> dict:
+    """上市減資恢復買賣：{代號: 恢復買賣參考價 ÷ 停止買賣前收盤價}；比例取不到時值為 None（改用當日均價重設）。"""
+    j = twse("/rwd/zh/reducation/TWTAUU", startDate=d, endDate=d)
+    if j.get("stat") != "OK":
+        return {}
+    f = j.get("fields")
+    ci, pi, ri = fidx(f, "股票代號"), fidx(f, "停止買賣前收盤價格", "停止買賣前收盤價"), fidx(f, "恢復買賣參考價")
+    if ci is None:
+        return {}
+    out = {}
+    for r in j.get("data") or []:
+        p0, ref = (num(r[pi]) if pi is not None else None), (num(r[ri]) if ri is not None else None)
+        out[str(r[ci]).strip()] = ref / p0 if p0 and ref else None
+    return out
+
+
 def tpex_margin():
-    """上櫃：櫃買中心 OpenAPI（只有最新一日）。回傳 (日期, {代號: [買進, 前日餘額, 今日餘額, 收盤, 均價]})。"""
+    """上櫃：櫃買中心 OpenAPI（只有最新一日）。回傳 (日期, {代號: [有效買進, 前日餘額, 今日餘額, 收盤, 均價]})。"""
     base = "https://www.tpex.org.tw/openapi/v1/"
     try:
         m = requests.get(base + "tpex_mainboard_margin_balance", headers=TFX_HDR, timeout=40).json()
@@ -462,35 +512,157 @@ def tpex_margin():
         if len(roc) == 7:
             day = f"{int(roc[:3]) + 1911}{roc[3:]}"
         cl, av = px.get(c, (None, None))
-        out[c] = [num(x.get("MarginPurchase")), num(x.get("MarginPurchaseBalancePreviousDay")), num(x.get("MarginPurchaseBalance")), cl, av or cl]
+        buy = num(x.get("MarginPurchase"))
+        off = num(x.get("OffsettingOfMarginPurchasesAndShortSales") or x.get("MarginShortOffset")) if MARGIN_NET_OFFSET else None
+        out[c] = [max(0, (buy or 0) - (off or 0)) if buy is not None else None,
+                  num(x.get("MarginPurchaseBalancePreviousDay")), num(x.get("MarginPurchaseBalance")), cl, av or cl]
     return day, out
 
 
-def roll(S: dict, code: str, d: str, buy, prev, bal, close, vwap, mkt: str):
+def tpex_total_yi(j: dict):
+    """從櫃買融資融券餘額 JSON 找「融資金額」合計（仟元 → 億）；找不到回 None。"""
+    blocks = list(j.get("tables") or [])
+    if j.get("summary"):
+        blocks.append({"data": j["summary"]})
+    for t in blocks:
+        for r in t.get("data") or []:
+            if r and "融資金額" in re.sub(r"\s", "", str(r[0])):
+                vals = [num(x) for x in r[1:] if num(x)]
+                if vals:
+                    return vals[-1] / 1e5  # 仟元 → 億（取最後一個數字＝今日餘額）
+    return None
+
+
+def tpex_hist(d: str):
+    """上櫃單日資料：櫃買網站 JSON。回傳 ({代號: [有效買進, 前日餘額, 今日餘額, 收盤, 均價]}, 融資金額億)。
+    欄位依名稱比對；連線失敗回 ({}, None)，欄位無法辨識回 (None, None)。"""
+    ymd = f"{d[:4]}/{d[4:6]}/{d[6:]}"
+    try:
+        mj = requests.get("https://www.tpex.org.tw/www/zh-tw/margin/balance", params={"date": ymd, "response": "json"},
+                          headers=TFX_HDR, timeout=40).json()
+        qj = requests.get("https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes", params={"date": ymd, "response": "json"},
+                          headers=TFX_HDR, timeout=40).json()
+    except Exception as e:
+        print(f"  ! 櫃買歷史 {d} 無法取得：{str(e)[:60]}", file=sys.stderr)
+        return {}, None
+    total = tpex_total_yi(mj)
+    mt = next((t for t in mj.get("tables") or [] if fidx(t.get("fields"), "資買", "融資買進") is not None), None)
+    qt = next((t for t in qj.get("tables") or [] if fidx(t.get("fields"), "收盤") is not None), None)
+    if not mt or not qt:
+        return {}, total
+    mf, qf = mt["fields"], qt["fields"]
+    ic, ib = fidx(mf, "代號", "股票代號"), fidx(mf, "資買", "融資買進")
+    ip, ibal = fidx(mf, "前資餘額(張)", "前資餘額", "前日餘額"), fidx(mf, "資餘額", "融資餘額", "今日餘額")
+    io = fidx(mf, "資券相抵(張)", "資券相抵", "資券互抵")
+    qc, qcl = fidx(qf, "代號", "股票代號"), fidx(qf, "收盤")
+    qv, qa = fidx(qf, "成交股數"), fidx(qf, "成交金額(元)", "成交金額")
+    if None in (ic, ib, ip, ibal, qc, qcl):
+        print(f"  ! 櫃買歷史 {d} 欄位無法辨識：{mf} / {qf}", file=sys.stderr)
+        return None, None
+    px = {}
+    for r in qt.get("data") or []:
+        cl, v, a = num(r[qcl]), (num(r[qv]) if qv is not None else None), (num(r[qa]) if qa is not None else None)
+        px[str(r[qc]).strip()] = (cl, a / v if v and a else cl)
+    out = {}
+    for r in mt.get("data") or []:
+        c = str(r[ic]).strip()
+        if c not in px:
+            continue
+        buy = num(r[ib])
+        off = num(r[io]) if (MARGIN_NET_OFFSET and io is not None) else 0
+        out[c] = [max(0, (buy or 0) - (off or 0)) if buy is not None else None, num(r[ip]), num(r[ibal]), *px[c]]
+    return out, total
+
+
+def roll(S: dict, code: str, d: str, buy, prev, bal, close, vwap, mkt: str, adj=None, reset=False):
+    """移動平均成本：(昨日餘額 × 成本 + 有效買進 × 均價) ÷ (昨日餘額 + 有效買進)。
+    adj：除權息或減資復牌的價格比例（成本同比例調整）；reset=True 且無比例時，成本重設為當日均價。
+    狀態 [餘額, 成本, 收盤, 市場, 增減, α, C0]：α 是起點成本仍殘留在平均成本裡的權重，C0 是起點成本。"""
     st = S.get(code)
     if st is None:
         if not close:
             return
-        st = [prev or 0, init_avg(code, d, close), close, mkt]
-    b0, avg = st[0], st[1]
+        c0 = init_avg(code, d, close)
+        st = [prev or 0, c0, close, mkt, 0, 1.0, c0]
+    st = list(st) + [None] * (7 - len(st))
+    b0, avg, alpha, c0 = st[0], st[1], st[5], st[6]
+    if reset and not adj:
+        avg, alpha, c0 = vwap or close or avg, 0.0, None
+    if adj:
+        avg *= adj
+        c0 = c0 * adj if c0 else c0
     if buy and vwap and (b0 + buy) > 0:
-        avg = (b0 * avg + buy * vwap) / (b0 + buy)
+        w = b0 / (b0 + buy)
+        avg = w * avg + (1 - w) * vwap
+        alpha = alpha * w if alpha is not None else None
     if not bal:
-        avg = close or avg  # 融資清空：下次重新起算
-    S[code] = [int(bal or 0), round(avg, 3), close or st[2], mkt, int((bal or 0) - (prev or 0))]
+        avg, alpha, c0 = close or avg, 0.0, None  # 融資清空：下次重新起算
+    S[code] = [int(bal or 0), round(avg, 3), close or st[2], mkt, int((bal or 0) - (prev or 0)),
+               round(alpha, 5) if alpha is not None else None, round(c0, 3) if c0 else None]
 
 
-def do_stock_margin(tx: dict):
+def calib_k(S: dict, mkt: str, official_yi, k_prev=None):
+    """回傳 (模式, 係數)。
+    global：k ＝ 官方融資金額 ÷ Σ(餘額股數 × 推估成本 × 六成)，顯示成本 ＝ 成本 × k。
+    init  ：只調整仍殘留在成本中的起點部分：成本' ＝ 成本 + α × C0 × (m − 1)，m 使加總等於官方金額；
+            m 不合理（α 總量太小或超出 0.3～1.2）時退回 global。"""
+    if not official_yi:
+        return None
+    rows = [v for v in S.values() if v[3] == mkt and v[0] and v[1]]
+    est = sum(v[0] * 1000 * v[1] * LEND for v in rows)
+    if not est:
+        return None
+    target = official_yi * 1e8
+    res = None
+    if CALIB_MODE == "init":
+        base = sum(v[0] * 1000 * (v[5] or 0) * (v[6] or 0) * LEND for v in rows if len(v) >= 7)
+        if base > est * 0.05:
+            m = 1 + (target - est) / base
+            if 0.3 <= m <= 1.2:
+                res = ("init", m)
+    if res is None:
+        k = target / est
+        if not 0.5 < k < 1.5:  # 超出範圍代表資料異常，不校正
+            return None
+        if k_prev:
+            k = min(max(k, k_prev - K_CLAMP), k_prev + K_CLAMP)
+        res = ("global", k)
+    return res
+
+
+def calibrated(v, cal):
+    """依校正結果回傳顯示用成本。"""
+    if not cal:
+        return v[1]
+    mode, x = cal
+    if mode == "init" and len(v) >= 7 and v[5] and v[6]:
+        return v[1] + v[5] * v[6] * (x - 1)
+    return v[1] * x if mode == "global" else v[1]
+
+
+def do_stock_margin(tx: dict, mg: dict | None = None):
+    """個股融資維持率（估算）。MARGIN_REBUILD=1 時清掉狀態、從 120 個交易日前重算（改版後需跑一次）。"""
     path = CACHE / "stock_margin_state.json"
-    st = load_json(path, {}) or {}
+    st = {} if os.environ.get("MARGIN_REBUILD") == "1" else (load_json(path, {}) or {})
+    if st.get("v") != 2:  # 舊版狀態沒有 α／C0，重算
+        st = {}
     S, done_d, otc_d = st.get("s", {}), st.get("d", ""), st.get("od", "")
+    kh = st.get("k", {})  # {日期: {"上市": [模式, 係數], "上櫃": [...]}}
     today = NOW.strftime("%Y%m%d")
     recent = sorted(d for d in tx if d <= today and d >= (NOW - dt.timedelta(days=400)).strftime("%Y%m%d"))
     todo = [d for d in recent if d > done_d] if done_d else recent[-120:]
+
+    def last_k(mkt):
+        for d in sorted(kh, reverse=True):
+            c = kh[d].get(mkt)
+            if c and c[0] == "global":
+                return c[1]
+        return None
+
     n = 0
     for d in todo:
-        if time.time() - START > BUDGET * 0.8:
-            print(f"個股融資：已達時間上限，處理到 {done_d}")
+        if time.time() - START > BUDGET * 0.6:
+            print(f"個股融資：已達時間上限，上市處理到 {done_d}")
             break
         px = day_prices(d)
         time.sleep(0.8)
@@ -498,36 +670,83 @@ def do_stock_margin(tx: dict):
         time.sleep(0.8)
         if not px or j.get("stat") != "OK" or len(j.get("tables", [])) < 2:
             continue
+        exr = tw_exright(d)
+        time.sleep(0.8)
+        rst = tw_reset(d)
+        time.sleep(0.8)
+        oi = fidx(j["tables"][1].get("fields"), "資券互抵") if MARGIN_NET_OFFSET else None
         for r in j["tables"][1].get("data", []):
             c = str(r[0]).strip()
             p = px.get(c)
             if not p:
                 continue
-            roll(S, c, d, num(r[2]), num(r[5]), num(r[6]), p[0], p[2], "上市")
+            buy = num(r[2])
+            if buy is not None and oi is not None:
+                buy = max(0, buy - (num(r[oi]) or 0))
+            adj = exr.get(c) or rst.get(c)
+            roll(S, c, d, buy, num(r[5]), num(r[6]), p[0], p[2], "上市", adj, c in rst)
+        if mg and d in mg:
+            cal = calib_k(S, "上市", mg[d][0], last_k("上市"))
+            if cal:
+                kh.setdefault(d, {})["上市"] = [cal[0], round(cal[1], 5)]
         done_d = d
         n += 1
-    # 上櫃（OpenAPI 只有最新一日，只能從今天往後累積）
-    od, om = tpex_margin()
-    if od and om and od > otc_d:
-        for c, (buy, prev, bal, cl, av) in om.items():
-            roll(S, c, od, buy, prev, bal, cl, av, "上櫃")
-        otc_d = od
-    save_json(path, {"d": done_d, "od": otc_d, "s": S}, compact=True)
+
+    # 上櫃：櫃買網站逐日資料（含當日融資金額總額），第一次從 120 個交易日前開始；取不到時退回 OpenAPI 最新一日
+    otc_todo = [d for d in recent[-120:] if d > otc_d] if otc_d else recent[-120:]
+    for d in otc_todo:
+        if time.time() - START > BUDGET * 0.9:
+            print(f"上櫃：已達時間上限，處理到 {otc_d}")
+            break
+        h, tot = tpex_hist(d)
+        time.sleep(1.0)
+        if h is None:
+            break
+        if not h:
+            continue
+        for c, (buy, prev, bal, cl, av) in h.items():
+            roll(S, c, d, buy, prev, bal, cl, av, "上櫃")
+        cal = calib_k(S, "上櫃", tot, last_k("上櫃"))
+        if cal:
+            kh.setdefault(d, {})["上櫃"] = [cal[0], round(cal[1], 5)]
+        otc_d = d
+    if not otc_d or (recent and otc_d < recent[-1]):
+        od, om = tpex_margin()
+        if od and om and od > (otc_d or "") and (otc_d or od == recent[-1]):
+            for c, (buy, prev, bal, cl, av) in om.items():
+                roll(S, c, od, buy, prev, bal, cl, av, "上櫃")
+            otc_d = od
+
+    kh = dict(sorted(kh.items())[-60:])
+    save_json(path, {"v": 2, "d": done_d, "od": otc_d, "s": S, "k": kh}, compact=True)
+    if recent and done_d < recent[-1] and (load_json(OUT / "stock_margin.json", {}) or {}).get("d"):
+        print(f"個股融資：上市只算到 {done_d}（最新 {recent[-1]}），還在重算或資料未到，先保留網站上的舊結果")
+        return
+    cal_tw = (kh.get(done_d) or {}).get("上市")
+    cal_ot = (kh.get(otc_d) or {}).get("上櫃")
     meta = load_json(META_DIR / "stocks.json", {}) or {}
     rows = []
-    for c, (bal, avg, close, mkt, chg) in S.items():
+    for c, v in S.items():
+        bal, avg, close, mkt, chg = v[:5]
         if not bal or not avg or not close or c not in meta:
             continue
-        lend = 0.6 if mkt == "上市" else 0.5
-        ratio = close / (avg * lend) * 100
-        if ratio < 90 or ratio > 500:  # 多半是減資、分割或新上市造成的估算失真，略過
+        raw = close / (avg * LEND) * 100
+        if raw < 90 or raw > 500:  # 多半是減資、分割或新上市造成的估算失真，略過
             continue
-        rows.append([c, meta[c].get("n", ""), mkt, meta[c].get("i", ""), close, round(avg, 2), round(ratio, 1), bal, chg])
+        cost = calibrated(v, cal_tw if mkt == "上市" else cal_ot)
+        if not cost or cost <= 0:
+            continue
+        ratio = close / (cost * LEND) * 100
+        rows.append([c, meta[c].get("n", ""), mkt, meta[c].get("i", ""), close, round(cost, 2), round(ratio, 1), bal, chg,
+                     round(avg, 2), round(raw, 1)])
     rows.sort(key=lambda r: r[6])
-    save_json(OUT / "stock_margin.json", {"updated": stamp(), "d": done_d, "od": otc_d,
-                                          "f": ["代號", "名稱", "市場", "產業", "收盤", "融資成本", "維持率%", "融資餘額(張)", "增減(張)"],
+    save_json(OUT / "stock_margin.json", {"updated": stamp(), "d": done_d, "od": otc_d, "lend": LEND,
+                                          "k": {"上市": cal_tw, "上櫃": cal_ot},
+                                          "f": ["代號", "名稱", "市場", "產業", "收盤", "融資成本", "維持率%", "融資餘額(張)", "增減(張)",
+                                                "未校正成本", "未校正維持率%"],
                                           "rows": rows}, compact=True)
-    print(f"個股融資維持率：上市處理到 {done_d}（本次 {n} 天）、上櫃 {otc_d or '無'}；共 {len(rows)} 檔，低於 150% 有 {sum(1 for r in rows if r[6] < 150)} 檔")
+    print(f"個股融資維持率：上市到 {done_d}（本次 {n} 天，校正 {cal_tw}）、上櫃到 {otc_d or '無'}（校正 {cal_ot}）；"
+          f"共 {len(rows)} 檔，低於 150% 有 {sum(1 for r in rows if r[6] < 150)} 檔")
 
 
 # ======================================================================
@@ -663,7 +882,7 @@ def main() -> int:
     except Exception as e:
         print(f"  ! 融資維持率失敗：{e}", file=sys.stderr)
         mg = load_json(CACHE / "margin.json", {}) or {}
-    for step, fn in (("個股融資維持率", lambda: do_stock_margin(tx)),
+    for step, fn in (("個股融資維持率", lambda: do_stock_margin(tx, mg)),
                      ("期貨警示", lambda: do_futalert(fut_rows or taifex("/DailyMarketReportFut"), today_px, last_day)),
                      ("融資／外資", lambda: do_flow(mg, tx)),
                      ("席勒本益比", lambda: do_cape(tx))):
