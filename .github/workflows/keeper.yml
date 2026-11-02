@@ -1,0 +1,38 @@
+name: 排程管家
+
+# GitHub 的 cron 常延遲數小時或整天沒觸發。這個工作流程啟動後會持續執行（最長約 6 小時），
+# 每 10 分鐘檢查資料是否已更新，需要時主動觸發「每日強勢族群」與「小功能資料」；快到時限會自己交棒。
+on:
+  schedule:
+    # 台北時間 週一～五 07:01、08:31、13:31、14:11、15:41、18:21、20:51（任何一個有觸發即可接手）
+    - cron: "1 23 * * 0-4"
+    - cron: "31 0 * * 1-5"
+    - cron: "31 5 * * 1-5"
+    - cron: "11 6 * * 1-5"
+    - cron: "41 7 * * 1-5"
+    - cron: "21 10 * * 1-5"
+    - cron: "51 12 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: keeper
+  cancel-in-progress: false
+
+jobs:
+  keeper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 管家
+        run: cd scripts && python -u keeper.py
+        env:
+          GH_TOKEN: ${{ github.token }}
