@@ -330,6 +330,44 @@
       : `<p class="empty">${empty}</p>`;
   }
 
+  // ---------------- 2b-2. 點個股：近兩週融資餘額（加在月營收視窗下方） ----------------
+  let SMH = null;
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-rev]"); if (!t) return;
+    const ex = document.getElementById("revExtra");
+    if (ex) ex.innerHTML = "";
+    if (t.closest("#smList")) setTimeout(() => drawMarginHist(t.dataset.rev), 0);  // 等月營收視窗打開後再加
+  });
+  async function drawMarginHist(code) {
+    const body = document.getElementById("revBody"); if (!body) return;
+    let ex = document.getElementById("revExtra");
+    if (!ex) { ex = document.createElement("div"); ex.id = "revExtra"; body.insertAdjacentElement("afterend", ex); }
+    ex.innerHTML = '<p class="hint">融資餘額載入中…</p>';
+    try { SMH = SMH || (await getJSON("sm_hist")); } catch { ex.innerHTML = '<p class="hint">近兩週融資餘額：下一次每日更新後就會出現。</p>'; return; }
+    const ds = SMH.d || [], v = (SMH.c || {})[code];
+    const row = (SM?.rows || []).find((r) => r[0] === code);
+    if (!v || !v.some((x) => x)) { ex.innerHTML = '<div class="mh"><h4>近兩週融資餘額</h4><p class="hint">這檔近兩週沒有融資餘額。</p></div>'; return; }
+    const pts = ds.map((d, i) => [d, v[i]]).filter((p) => p[1] != null);
+    const first = pts[0][1], last = pts[pts.length - 1][1], diff = last - first, pct = first ? (diff / first) * 100 : null;
+    const W = 640, H = 190, P = { l: 52, r: 12, t: 26, b: 26 }, n = pts.length, bw = (W - P.l - P.r) / n;
+    const vals = pts.map((p) => p[1]);
+    let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.25 || hi * 0.05 || 1; lo = Math.max(0, lo - pad); hi += pad * 0.6;
+    const y = (x) => P.t + ((hi - x) * (H - P.t - P.b)) / (hi - lo);
+    let s = "";
+    for (let k = 0; k <= 3; k++) { const x = lo + ((hi - lo) * k) / 3; s += `<line class="gl" x1="${P.l}" x2="${W - P.r}" y1="${y(x)}" y2="${y(x)}"/><text class="ax" x="${P.l - 6}" y="${y(x) + 4}" text-anchor="end">${fmt(x)}</text>`; }
+    pts.forEach(([d, x], i) => {
+      const cx = P.l + i * bw, ch = i ? x - pts[i - 1][1] : null, top = y(x);
+      s += `<rect class="mh-bar${i === n - 1 ? " last" : ""}" x="${(cx + bw * 0.18).toFixed(1)}" y="${top.toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${(H - P.b - top).toFixed(1)}"><title>${md(d)}　融資餘額 ${fmt(x)} 張${ch != null ? `（${sg(ch)}）` : ""}</title></rect>`;
+      if (ch != null) s += `<text class="mh-ch ${cls(ch)}" x="${(cx + bw / 2).toFixed(1)}" y="${(top - 6).toFixed(1)}" text-anchor="middle">${sg(ch)}</text>`;
+      s += `<text class="ax" x="${(cx + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${md(d)}</text>`;
+    });
+    ex.innerHTML = `<div class="mh"><div class="mh-head"><h4>近兩週融資餘額<small>（張）</small></h4>
+        <span>${md(pts[0][0])} ${fmt(first)} 張 → ${md(pts[n - 1][0])} <b>${fmt(last)}</b> 張　<b class="${cls(diff)}">${sg(diff)} 張${pct != null ? `（${sg(pct, 1, "%")}）` : ""}</b></span>
+        ${row ? `<span class="muted">估算維持率 <b>${fmt(row[6], 1)}%</b>・融資成本 ${fmt(row[5], row[5] < 100 ? 2 : 1)}</span>` : ""}</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="近兩週融資餘額">${s}</svg>
+      <p class="hint">柱上數字為較前一交易日增減（紅＝增加、綠＝減少）。資料：證交所、櫃買中心每日融資餘額，更新於 ${esc(SMH.updated || "")}。</p></div>`;
+  }
+
   // ---------------- 2c. 風險係數 β ----------------
   const bState = { q: "", p: store.get("bP", "6m"), dir: store.get("bDir", "desc"), view: store.get("bView", "all"),
     group: store.get("bGroup", "0") === "1", all: false };
