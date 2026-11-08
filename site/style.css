@@ -865,3 +865,17 @@ table.sm-tbl .sm-admc { white-space: nowrap; text-align: center; }
 table.beta-tbl th.on { color: var(--tiff-ink); background: var(--tiff-soft); }
 table.beta-tbl td.on { background: color-mix(in srgb, var(--tiff-soft) 45%, transparent); }
 .beta-more { align-self: center; margin-top: 4px; padding: 7px 16px; border-radius: 10px; }
+
+/* 個股：近兩週融資餘額（2026.11.08） */
+#revExtra .mh { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.mh-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; font-size: 13.5px; }
+.mh-head h4 { margin: 0; font-size: 15px; }
+.mh-head h4 small { font-weight: 400; color: var(--muted); }
+#revExtra svg { display: block; margin-top: 6px; }
+#revExtra .gl { stroke: var(--line); }
+#revExtra .ax { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+#revExtra .mh-bar { fill: #9fb7d9; }
+#revExtra .mh-bar.last { fill: #4f7cc0; }
+#revExtra .mh-ch { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#revExtra .mh-ch.up { fill: var(--up); }
+#revExtra .mh-ch.down { fill: var(--down); }
