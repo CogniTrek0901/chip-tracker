@@ -330,7 +330,7 @@
       : `<p class="empty">${empty}</p>`;
   }
 
-  // ---------------- 2b-2. 點個股：近兩週融資餘額（加在月營收視窗下方） ----------------
+  // ---------------- 2b-2. 點個股：近兩週融資餘額（加在月營收視窗上方） ----------------
   let SMH = null;
   document.addEventListener("click", (e) => {
     const t = e.target.closest("[data-rev]"); if (!t) return;
@@ -341,7 +341,7 @@
   async function drawMarginHist(code) {
     const body = document.getElementById("revBody"); if (!body) return;
     let ex = document.getElementById("revExtra");
-    if (!ex) { ex = document.createElement("div"); ex.id = "revExtra"; body.insertAdjacentElement("afterend", ex); }
+    if (!ex) { ex = document.createElement("div"); ex.id = "revExtra"; body.insertAdjacentElement("beforebegin", ex); }
     ex.innerHTML = '<p class="hint">融資餘額載入中…</p>';
     try { SMH = SMH || (await getJSON("sm_hist")); } catch { ex.innerHTML = '<p class="hint">近兩週融資餘額：下一次每日更新後就會出現。</p>'; return; }
     const ds = SMH.d || [], v = (SMH.c || {})[code];
