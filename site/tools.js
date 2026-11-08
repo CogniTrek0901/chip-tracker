@@ -348,6 +348,8 @@
     const row = (SM?.rows || []).find((r) => r[0] === code);
     if (!v || !v.some((x) => x)) { ex.innerHTML = '<div class="mh"><h4>近兩週融資餘額</h4><p class="hint">這檔近兩週沒有融資餘額。</p></div>'; return; }
     const pts = ds.map((d, i) => [d, v[i]]).filter((p) => p[1] != null);
+    let px = new Map();  // 每日收盤（K 線檔），十字線顯示股價用
+    try { const k = await (await fetch(`data/k/${code}.json`, { cache: "no-cache" })).json(); px = new Map((k.d || []).map((r) => [r[0], r[4]])); } catch { /* 沒有就不顯示 */ }
     const first = pts[0][1], last = pts[pts.length - 1][1], diff = last - first, pct = first ? (diff / first) * 100 : null;
     const W = 640, H = 190, P = { l: 52, r: 12, t: 26, b: 26 }, n = pts.length, bw = (W - P.l - P.r) / n;
     const vals = pts.map((p) => p[1]);
@@ -357,15 +359,32 @@
     for (let k = 0; k <= 3; k++) { const x = lo + ((hi - lo) * k) / 3; s += `<line class="gl" x1="${P.l}" x2="${W - P.r}" y1="${y(x)}" y2="${y(x)}"/><text class="ax" x="${P.l - 6}" y="${y(x) + 4}" text-anchor="end">${fmt(x)}</text>`; }
     pts.forEach(([d, x], i) => {
       const cx = P.l + i * bw, ch = i ? x - pts[i - 1][1] : null, top = y(x);
-      s += `<rect class="mh-bar${i === n - 1 ? " last" : ""}" x="${(cx + bw * 0.18).toFixed(1)}" y="${top.toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${(H - P.b - top).toFixed(1)}"><title>${md(d)}　融資餘額 ${fmt(x)} 張${ch != null ? `（${sg(ch)}）` : ""}</title></rect>`;
+      s += `<rect class="mh-bar${i === n - 1 ? " last" : ""}" x="${(cx + bw * 0.18).toFixed(1)}" y="${top.toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${(H - P.b - top).toFixed(1)}"/>`;
       if (ch != null) s += `<text class="mh-ch ${cls(ch)}" x="${(cx + bw / 2).toFixed(1)}" y="${(top - 6).toFixed(1)}" text-anchor="middle">${sg(ch)}</text>`;
       s += `<text class="ax" x="${(cx + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle">${md(d)}</text>`;
     });
+    s += `<line class="cur" x1="0" x2="0" y1="${P.t - 8}" y2="${H - P.b}" style="display:none"/><rect class="hit" x="${P.l}" y="0" width="${W - P.l - P.r}" height="${H}"/>`;
     ex.innerHTML = `<div class="mh"><div class="mh-head"><h4>近兩週融資餘額<small>（張）</small></h4>
         <span>${md(pts[0][0])} ${fmt(first)} 張 → ${md(pts[n - 1][0])} <b>${fmt(last)}</b> 張　<b class="${cls(diff)}">${sg(diff)} 張${pct != null ? `（${sg(pct, 1, "%")}）` : ""}</b></span>
         ${row ? `<span class="muted">估算維持率 <b>${fmt(row[6], 1)}%</b>・融資成本 ${fmt(row[5], row[5] < 100 ? 2 : 1)}</span>` : ""}</div>
-      <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="近兩週融資餘額">${s}</svg>
-      <p class="hint">柱上數字為較前一交易日增減（紅＝增加、綠＝減少）。資料：證交所、櫃買中心每日融資餘額，更新於 ${esc(SMH.updated || "")}。</p></div>`;
+      <div class="mh-chart"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="近兩週融資餘額">${s}</svg><div class="rev-tip" hidden></div><div class="rev-xl" hidden></div></div>
+      <p class="hint">柱上數字為較前一交易日增減（紅＝增加、綠＝減少）；滑鼠移到圖上可看當日融資餘額與股價。資料：證交所、櫃買中心每日融資餘額，更新於 ${esc(SMH.updated || "")}。</p></div>`;
+    // 十字線：顯示日期／融資餘額／股價（排版同月營收圖）
+    const box = ex.querySelector(".mh-chart"), svg = box.querySelector("svg"), tip = box.querySelector(".rev-tip"), xl = box.querySelector(".rev-xl"), ln = svg.querySelector(".cur");
+    const ymd2 = (d) => `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6)}`;
+    const at = (i) => {
+      i = Math.max(0, Math.min(n - 1, i));
+      const [d, x] = pts[i], cx = P.l + i * bw + bw / 2, p = px.get(d);
+      ln.setAttribute("x1", cx); ln.setAttribute("x2", cx); ln.style.display = "";
+      tip.innerHTML = `<b>${ymd2(d)}</b><span>融資餘額</span><em>${fmt(x)} 張</em><span>股價</span><em>${p == null ? "–" : fmt(p, p < 100 ? 2 : 1)}</em>`;
+      tip.hidden = false;
+      const pct = (cx / W) * 100;
+      xl.textContent = md(d); xl.hidden = false; xl.style.left = `${Math.min(92, Math.max(8, pct))}%`;
+      tip.style.left = pct < 50 ? "auto" : "10%"; tip.style.right = pct < 50 ? "4%" : "auto";
+    };
+    const move = (e) => { const rc = svg.getBoundingClientRect(); at(Math.floor((((e.touches ? e.touches[0].clientX : e.clientX) - rc.left) * W / rc.width - P.l) / bw)); };
+    svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move);
+    at(n - 1);
   }
 
   // ---------------- 2c. 風險係數 β ----------------
