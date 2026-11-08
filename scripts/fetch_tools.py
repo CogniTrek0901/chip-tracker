@@ -881,6 +881,73 @@ def do_futalert(fut_rows: list, today_px: dict, px_day: str, th: float = 5.0):
     print(f"期貨警示 {day}：電子類個股期貨 {len(cands)} 檔，價差 ≥{th}% 共 {len(items)} 檔")
 
 
+# ======================================================================
+# 2d. 個股近兩週融資餘額（點個股時的小圖）
+# ======================================================================
+def tpex_bal(d: str) -> dict | None:
+    """上櫃單日各股融資餘額（張）；連線失敗回 None、當日無資料回 {}。"""
+    ymd = f"{d[:4]}/{d[4:6]}/{d[6:]}"
+    for k in range(4):
+        try:
+            j = requests.get("https://www.tpex.org.tw/www/zh-tw/margin/balance", params={"date": ymd, "response": "json"},
+                             headers=TFX_HDR, timeout=40).json()
+            break
+        except Exception as e:
+            print(f"  ! 櫃買融資 {d} 第 {k + 1} 次失敗：{str(e)[:60]}", file=sys.stderr)
+            time.sleep(5 * (k + 1))
+    else:
+        return None
+    t = next((t for t in j.get("tables") or [] if fidx(t.get("fields"), "資餘額", "融資餘額") is not None), None)
+    if not t:
+        return {}
+    ic, ib = fidx(t["fields"], "代號", "股票代號"), fidx(t["fields"], "資餘額", "融資餘額")
+    return {str(r[ic]).strip(): int(num(r[ib]) or 0) for r in t.get("data") or [] if num(r[ib]) is not None}
+
+
+def do_margin_hist(tx: dict, days: int = 10):
+    """近 10 個交易日每檔融資餘額：快取 data/tools/margin_hist.json {日期: {代號: 張}}，
+    輸出 site/data/tools/sm_hist.json {"d": [日期...], "c": {代號: [張...]}}（只留上市櫃普通股）。"""
+    path = CACHE / "margin_hist.json"
+    H = load_json(path, {}) or {}
+    today = NOW.strftime("%Y%m%d")
+    want = sorted(d for d in tx if d <= today)[-days:]
+    for d in want:
+        if d in H and H[d].get("_tw") and H[d].get("_ot"):
+            continue
+        h = H.get(d) or {}
+        if not h.get("_tw"):
+            j = twse("/rwd/zh/marginTrading/MI_MARGN", date=d, selectType="ALL")
+            time.sleep(0.8)
+            if j.get("stat") == "OK" and len(j.get("tables", [])) >= 2:
+                t = j["tables"][1]
+                ib = fidx(t.get("fields"), "今日餘額") or 6
+                for r in t.get("data") or []:
+                    v = num(r[ib])
+                    if v is not None:
+                        h[str(r[0]).strip()] = int(v)
+                h["_tw"] = 1
+        if not h.get("_ot"):
+            o = tpex_bal(d)
+            time.sleep(1.0)
+            if o:
+                h.update(o)
+                h["_ot"] = 1
+        if h:
+            H[d] = h
+    H = {d: H[d] for d in sorted(H) if d in want}
+    save_json(path, H, compact=True)
+    meta = load_json(META_DIR / "stocks.json", {}) or {}
+    ds = [d for d in want if H.get(d, {}).get("_tw")]  # 上市資料還沒公布的日子先不列
+    out = {}
+    for c in meta:
+        v = [H[d].get(c) for d in ds]
+        if any(x for x in v if x):
+            out[c] = v
+    save_json(OUT / "sm_hist.json", {"updated": stamp(), "d": ds, "c": out}, compact=True)
+    miss = [d for d in ds if not (H[d].get("_tw") and H[d].get("_ot"))]
+    print(f"近兩週融資餘額：{len(ds)} 天、{len(out)} 檔" + (f"（資料不完整：{miss}）" if miss else ""))
+
+
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "all"
     OUT.mkdir(parents=True, exist_ok=True)
@@ -899,6 +966,7 @@ def main() -> int:
         print(f"  ! 融資維持率失敗：{e}", file=sys.stderr)
         mg = load_json(CACHE / "margin.json", {}) or {}
     for step, fn in (("個股融資維持率", lambda: do_stock_margin(tx, mg)),
+                     ("近兩週融資餘額", lambda: do_margin_hist(tx)),
                      ("期貨警示", lambda: do_futalert(fut_rows or taifex("/DailyMarketReportFut"), today_px, last_day)),
                      ("融資／外資", lambda: do_flow(mg, tx)),
                      ("席勒本益比", lambda: do_cape(tx))):
