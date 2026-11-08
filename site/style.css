@@ -867,7 +867,7 @@ table.beta-tbl td.on { background: color-mix(in srgb, var(--tiff-soft) 45%, tran
 .beta-more { align-self: center; margin-top: 4px; padding: 7px 16px; border-radius: 10px; }
 
 /* 個股：近兩週融資餘額（2026.11.08） */
-#revExtra .mh { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+#revExtra .mh { margin: 4px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .mh-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; font-size: 13.5px; }
 .mh-head h4 { margin: 0; font-size: 15px; }
 .mh-head h4 small { font-weight: 400; color: var(--muted); }
