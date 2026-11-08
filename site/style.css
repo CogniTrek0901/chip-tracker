@@ -879,3 +879,7 @@ table.beta-tbl td.on { background: color-mix(in srgb, var(--tiff-soft) 45%, tran
 #revExtra .mh-ch { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 #revExtra .mh-ch.up { fill: var(--up); }
 #revExtra .mh-ch.down { fill: var(--down); }
+.mh-chart { position: relative; touch-action: pan-y; }
+.mh-chart .hit { fill: transparent; cursor: crosshair; }
+.mh-chart .cur { stroke: var(--ink); stroke-width: 1.4; opacity: .85; pointer-events: none; }
+.mh-chart .rev-tip { top: 4px; }
