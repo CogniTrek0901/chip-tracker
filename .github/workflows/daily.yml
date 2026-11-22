@@ -75,5 +75,24 @@ jobs:
         if: env.RUN == '1'
         with:
           path: site
-      - uses: actions/deploy-pages@v4
+      # 上傳完稍等一下再發布，避免 GitHub 還找不到剛上傳的網站檔案
+      - name: 等待網站檔案就緒
         if: env.RUN == '1'
+        run: sleep 20
+      - id: deploy1
+        uses: actions/deploy-pages@v4
+        if: env.RUN == '1'
+        continue-on-error: true
+      # GitHub 偶爾發布失敗（找不到 github-pages 檔案等暫時性問題）：等 90 秒，重新打包再發布一次
+      - name: 發布失敗，稍候重試
+        if: env.RUN == '1' && steps.deploy1.outcome == 'failure'
+        run: sleep 90
+      - uses: actions/upload-pages-artifact@v3
+        if: env.RUN == '1' && steps.deploy1.outcome == 'failure'
+        with:
+          path: site
+          name: github-pages-retry
+      - uses: actions/deploy-pages@v4
+        if: env.RUN == '1' && steps.deploy1.outcome == 'failure'
+        with:
+          artifact_name: github-pages-retry
